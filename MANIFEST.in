@@ -1,0 +1,2 @@
+recursive-include retargeter/assets *
+recursive-include retargeter/ik_configs *
