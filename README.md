@@ -114,7 +114,11 @@ from movin_sdk_python import Retargeter
 retargeter = Retargeter(robot_type="unitree_g1", human_height=1.75)
 
 # Load BVH file
-frames, height = retargeter.load_bvh("motion.bvh")
+frames, height, parents, bones = retargeter.load_bvh("motion.bvh")
+# frames: list of frame data dicts
+# height: human height in meters
+# parents: numpy array of parent indices for skeleton hierarchy
+# bones: list of bone names
 
 # Retarget each frame
 for frame in frames:

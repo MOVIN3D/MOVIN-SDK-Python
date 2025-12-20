@@ -204,7 +204,11 @@ class Retargeter:
             human_height: Override human height (optional)
             
         Returns:
-            Tuple of (frames, human_height) where frames is a list of dictionaries
+            Tuple of (frames, human_height, parents, bones) where:
+            - frames: list of dictionaries with bone names as keys
+            - human_height: assumed human height in meters
+            - parents: numpy array of parent indices for each joint
+            - bones: list of bone names
         """
         height = human_height if human_height is not None else 1.75
         return load_bvh_file(bvh_file, human_height=height)

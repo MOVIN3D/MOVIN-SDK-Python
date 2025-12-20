@@ -202,8 +202,11 @@ def load_bvh_file(bvh_file, human_height=1.75):
         human_height: Assumed human height in meters (default: 1.75)
         
     Returns:
-        Tuple of (frames, human_height) where frames is a list of dictionaries
-        with bone names as keys and [position, orientation] as values.
+        Tuple of (frames, human_height, parents, bones) where:
+        - frames: list of dictionaries with bone names as keys and [position, orientation] as values
+        - human_height: assumed human height in meters
+        - parents: numpy array of parent indices for each joint
+        - bones: list of bone names
     """
     data = read_bvh(bvh_file)
     global_data = quat_fk(data.quats, data.pos, data.parents)
@@ -229,4 +232,4 @@ def load_bvh_file(bvh_file, human_height=1.75):
             
         frames.append(result)
 
-    return frames, human_height
+    return frames, human_height, data.parents, data.bones

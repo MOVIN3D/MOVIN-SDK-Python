@@ -54,6 +54,11 @@ Retargeter(
 **Methods:**
 
 - `load_bvh(bvh_file, human_height=None)` - Load BVH file
+  - Returns: `(frames, human_height, parents, bones)`
+    - `frames`: list of frame data dictionaries
+    - `human_height`: human height in meters
+    - `parents`: numpy array of parent indices for skeleton hierarchy
+    - `bones`: list of bone names
 - `process_mocap_frame(bones)` - Process real-time mocap frame
 - `retarget(human_data, offset_to_ground=False)` - Retarget to robot
 - `get_required_bones()` - Get set of required bone names
@@ -80,6 +85,30 @@ Real-time optimized MuJoCo viewer for streaming mocap visualization. Designed fo
 - `step_decomposed(root_pos, root_rot, dof_pos, ...)` - Alternative API with separate position/rotation/joints
 - `is_running()` - Check if viewer window is still open
 - `close()` - Close the viewer window
+
+## Utility Functions
+
+### load_bvh_file
+
+```python
+from movin_sdk_python import load_bvh_file
+
+frames, human_height, parents, bones = load_bvh_file(bvh_file, human_height=1.75)
+```
+
+Load a BVH file and return frame data with skeleton hierarchy information.
+
+**Arguments:**
+- `bvh_file`: Path to BVH file
+- `human_height`: Assumed human height in meters (default: 1.75)
+
+**Returns:**
+- `frames`: List of dictionaries with bone names as keys and `[position, orientation]` as values
+- `human_height`: Assumed human height in meters
+- `parents`: Numpy array of parent indices for each joint (skeleton hierarchy)
+- `bones`: List of bone names
+
+This function is similar to `BVHAnimation` from `read_bvh()` but returns processed frame data with coordinate transformations applied (Y-up to Z-up).
 
 ## Output Format
 

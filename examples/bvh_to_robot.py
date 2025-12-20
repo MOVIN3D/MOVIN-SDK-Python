@@ -78,8 +78,8 @@ def main():
     
     # Load BVH file
     print(f"Loading BVH file: {args.bvh_file}")
-    frames, human_height = retargeter.load_bvh(args.bvh_file, human_height=args.human_height)
-    print(f"Loaded {len(frames)} frames")
+    frames, human_height, parents, bones = retargeter.load_bvh(args.bvh_file, human_height=args.human_height)
+    print(f"Loaded {len(frames)} frames with {len(bones)} bones")
     
     # Retarget each frame
     qpos_list = []
