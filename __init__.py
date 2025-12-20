@@ -42,7 +42,7 @@ from .retargeter import Retargeter
 from .utils import load_bvh_file, process_mocap_frame
 from .viewer import MujocoViewer
 
-__version__ = "1.0.0"
+__version__ = "0.1.0"
 __all__ = [
     "MocapReceiver",
     "OscReader",

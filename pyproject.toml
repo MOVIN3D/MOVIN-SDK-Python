@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=64.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "movin_sdk_python"
-version = "1.0.0"
+version = "0.1.0"
 description = "Motion capture to robot retargeting SDK"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -15,8 +15,8 @@ dependencies = [
     "mink>=0.1.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.setuptools]
+packages = ["mocap_receiver", "retargeter", "utils", "viewer"]
 
 [tool.setuptools.package-data]
 "*" = ["*.xml", "*.json", "*.STL"]

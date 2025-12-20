@@ -1,6 +1,6 @@
-# Robots SDK Python
+# MOVIN SDK Python
 
-A Robots Python SDK for receiving motion capture data from MOVIN and retargeting it to robots in real-time.
+A MOVIN Python SDK for receiving motion capture data from MOVIN and retargeting it to robots in real-time.
 
 ## Features
 
