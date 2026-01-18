@@ -5,12 +5,9 @@ from setuptools import setup, find_packages
 setup(
     name='movin_sdk_python',
     version='0.1.0',
-    packages=find_packages(include=['mocap_receiver', 'mocap_receiver.*', 
-                                    'retargeter', 'retargeter.*',
-                                    'utils', 'utils.*',
-                                    'viewer', 'viewer.*']),
+    packages=find_packages(include=['movin_sdk_python', 'movin_sdk_python.*']),
     package_data={
-        '': ['*.xml', '*.json', '*.STL'],
+        'movin_sdk_python': ['**/*.xml', '**/*.json', '**/*.STL'],
     },
 )
 

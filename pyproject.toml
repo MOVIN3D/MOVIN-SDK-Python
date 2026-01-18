@@ -13,10 +13,12 @@ dependencies = [
     "scipy>=1.7.0",
     "mujoco>=3.0.0",
     "mink>=0.1.0",
+    "loop-rate-limiters>=0.1.0",
 ]
 
-[tool.setuptools]
-packages = ["mocap_receiver", "retargeter", "utils", "viewer"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["movin_sdk_python*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.xml", "*.json", "*.STL"]
+"movin_sdk_python" = ["**/*.xml", "**/*.json", "**/*.STL"]

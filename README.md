@@ -28,49 +28,48 @@ A MOVIN Python SDK for receiving motion capture data from MOVIN and retargeting 
 
 ## Installation
 
-### Option 1: Install via pip (Recommended)
+### Option 1: Install from GitHub (Recommended)
+
+```bash
+pip install git+https://github.com/MOVIN3D/MOVIN-SDK-Python.git
+```
+
+### Option 2: Install from local path
 
 ```bash
 # Install from local path
-pip install /path/to/movin_sdk_python
+pip install /path/to/MOVIN-SDK-Python
 
 # Or install in editable mode for development
-pip install -e /path/to/movin_sdk_python
-```
-
-### Option 2: Copy to your project
-
-1. Copy this folder to your project
-2. Install dependencies:
-
-```bash
-pip install -r requirements.txt
+pip install -e /path/to/MOVIN-SDK-Python
 ```
 
 ## Package Structure
 
 ```
-movin_sdk_python/
+MOVIN-SDK-Python/
 ├── pyproject.toml                  # Package configuration
-├── __init__.py                     # Main package exports
+├── setup.py                        # Setup script (for editable install)
 ├── examples/                       # Example scripts
 │   ├── bvh_to_robot.py             # BVH file to robot retargeting
 │   ├── mocap_to_robot.py           # Real-time mocap to robot (console)
 │   ├── mocap_to_robot_mujoco.py    # Real-time mocap with MuJoCo viewer
 │   └── receive_mocap.py            # Simple mocap data receiver
-├── mocap_receiver/                 # MocapReceiver subpackage
-│   ├── mocap_receiver.py           # UDP/OSC receiver with frame assembly
-│   └── osc_reader.py               # OSC protocol parser
-├── retargeter/                     # Retargeter subpackage
-│   ├── retargeter.py               # IK-based motion retargeting
-│   ├── assets/                     # Robot models and meshes
-│   └── ik_configs/                 # IK configuration files
-├── viewer/                         # MujocoViewer subpackage
-│   └── mujoco_viewer.py            # Real-time MuJoCo visualization
-└── utils/                          # Utility functions
-    ├── bvh_loader.py               # BVH file parsing
-    ├── fk_utils.py                 # Forward kinematics utilities
-    └── quat_utils.py               # Quaternion math utilities
+└── movin_sdk_python/               # Main package
+    ├── __init__.py                 # Package exports
+    ├── mocap_receiver/             # MocapReceiver subpackage
+    │   ├── mocap_receiver.py       # UDP/OSC receiver with frame assembly
+    │   └── osc_reader.py           # OSC protocol parser
+    ├── retargeter/                 # Retargeter subpackage
+    │   ├── retargeter.py           # IK-based motion retargeting
+    │   ├── assets/                 # Robot models and meshes
+    │   └── ik_configs/             # IK configuration files
+    ├── viewer/                     # MujocoViewer subpackage
+    │   └── mujoco_viewer.py        # Real-time MuJoCo visualization
+    └── utils/                      # Utility functions
+        ├── bvh_loader.py           # BVH file parsing
+        ├── fk_utils.py             # Forward kinematics utilities
+        └── quat_utils.py           # Quaternion math utilities
 ```
 
 
@@ -128,30 +127,32 @@ for frame in frames:
 
 ## Examples
 
+Example scripts are located in the `examples/` directory.
+
 ### Receive and Print Mocap Data
 
 ```bash
-python3 -m movin_sdk_python.examples.receive_mocap --port 11235
-python3 -m movin_sdk_python.examples.receive_mocap --port 11235 --verbose
+python examples/receive_mocap.py --port 11235
+python examples/receive_mocap.py --port 11235 --verbose
 ```
 
 ### Real-time Mocap to Robot (Console Output)
 
 ```bash
-python3 -m movin_sdk_python.examples.mocap_to_robot --port 11235 --robot unitree_g1 --human_height 1.75
+python examples/mocap_to_robot.py --port 11235 --robot unitree_g1 --human_height 1.75
 ```
 
 ### Real-time Mocap to Robot with MuJoCo Visualization
 
 ```bash
-python3 -m movin_sdk_python.examples.mocap_to_robot_mujoco --port 11235 --robot unitree_g1 --human_height 1.75
-python3 -m movin_sdk_python.examples.mocap_to_robot_mujoco --port 11235 --robot unitree_g1 --print_fps --no_rate_limit
+python examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
+python examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --print_fps --no_rate_limit
 ```
 
 ### BVH to Robot
 
 ```bash
-python3 -m movin_sdk_python.examples.bvh_to_robot --bvh_file path/to/motion.bvh --human_height 1.75
+python examples/bvh_to_robot.py --bvh_file path/to/motion.bvh --human_height 1.75
 ```
 
 ## API Reference
