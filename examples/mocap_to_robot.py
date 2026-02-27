@@ -15,7 +15,14 @@ Usage:
 """
 
 import argparse
+import os
+import sys
 import time
+
+# Allow running without installing the package (add project root to path)
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
 from movin_sdk_python import Retargeter, MocapReceiver
 

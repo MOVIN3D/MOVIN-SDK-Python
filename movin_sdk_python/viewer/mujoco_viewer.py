@@ -5,6 +5,7 @@ This viewer is designed for high-frequency updates (60+ Hz) with minimal latency
 """
 
 import pathlib
+import sys
 
 import mujoco as mj
 import mujoco.viewer as mjv
@@ -101,13 +102,22 @@ class MujocoViewer:
         self.rate_limiter = RateLimiter(frequency=motion_fps, warn=False)
         
         # Launch passive viewer (non-blocking)
-        self.viewer = mjv.launch_passive(
-            model=self.model,
-            data=self.data,
-            show_left_ui=show_left_ui,
-            show_right_ui=show_right_ui,
-            key_callback=keyboard_callback,
-        )
+        # On macOS, MuJoCo requires running under `mjpython` (not `python`) for the GUI.
+        try:
+            self.viewer = mjv.launch_passive(
+                model=self.model,
+                data=self.data,
+                show_left_ui=show_left_ui,
+                show_right_ui=show_right_ui,
+                key_callback=keyboard_callback,
+            )
+        except RuntimeError as e:
+            if "mjpython" in str(e) and sys.platform == "darwin":
+                raise RuntimeError(
+                    "On macOS, the MuJoCo viewer must be run with `mjpython` (installed with the mujoco package). "
+                    "Use: mjpython your_script.py ..."
+                ) from e
+            raise
         
         # Initial camera setup
         self.viewer.cam.distance = self._camera_distance

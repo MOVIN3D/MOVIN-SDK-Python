@@ -4,7 +4,7 @@ A MOVIN Python SDK for receiving motion capture data from MOVIN and retargeting 
 
 ## Features
 
-- **Real-time Mocap Receiver**: Receive mocap data via OSC protocol from MOVIN (Unity)
+- **Real-time Mocap Receiver**: Receive mocap data via OSC protocol from MOVIN Studio
 - **BVH File Support**: Load and retarget BVH motion capture files
 - **Motion Retargeting**: Retarget human motion to robot joint positions using IK
 - **MuJoCo Visualization**: Real-time visualization of retargeted motion in MuJoCo viewer
@@ -76,6 +76,9 @@ MOVIN-SDK-Python/
 ## Quick Start
 
 ### Real-time Mocap to Robot with Visualization (mujoco)
+
+> **macOS**: MuJoCo's viewer requires running with `mjpython` (installed with the mujoco package), not `python`.  
+> Example: `mjpython examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75`
 
 ```python
 from movin_sdk_python import MocapReceiver, Retargeter, MujocoViewer

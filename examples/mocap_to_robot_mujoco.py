@@ -14,10 +14,20 @@ The data flow:
 Usage:
     python3 mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
     python3 mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --print_fps --no_rate_limit
+
+  On macOS, MuJoCo viewer requires mjpython (not python):
+    mjpython mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
 """
 
 import argparse
+import os
+import sys
 import time
+
+# Allow running without installing the package (add project root to path)
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
 from movin_sdk_python import Retargeter, MocapReceiver, MujocoViewer
 
