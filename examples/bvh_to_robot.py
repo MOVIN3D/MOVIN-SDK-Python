@@ -17,6 +17,12 @@ import argparse
 import os
 import time
 import numpy as np
+import sys
+
+# Allow running without installing the package (add project root to path)
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
 from movin_sdk_python import Retargeter
 
@@ -48,7 +54,7 @@ def main():
     parser.add_argument(
         "--save_path",
         type=str,
-        default=None,
+        default="/home/dkjang/Workspace/Code/DK/MOVIN-SDK-Python/examples/test_retargeted.bvh",
         help="Path to save retargeted motion (pickle format)",
     )
     
