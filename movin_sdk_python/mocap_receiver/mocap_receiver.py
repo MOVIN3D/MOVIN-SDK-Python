@@ -9,37 +9,37 @@ assembly from chunked packets in a background thread.
 import socket
 import threading
 import time
-from collections import deque
 
 from .osc_reader import OscReader
+from .movin_frame_assembler import MovinFrameAssembler
 
 
 class MocapReceiver:
     """
     Manages OSC reception and frame assembly in a background thread.
-    
+
     Receives motion capture data from MOVIN via OSC over UDP, assembles
     multi-chunk frames, and provides access to the latest complete frame.
-    
+
     The data flow:
     1. UDP packets arrive containing OSC messages (/MOVIN/Frame)
     2. Each frame may be split across multiple chunks
     3. Chunks are assembled into complete frames
     4. Complete frames are stored in a queue for consumption
-    
+
     Example usage:
         receiver = MocapReceiver(port=11235)
         receiver.start()
-        
+
         while running:
             frame = receiver.get_latest_frame()
             if frame:
                 print(f"Frame {frame['frame_idx']}: {len(frame['bones'])} bones")
                 for bone in frame['bones']:
                     print(f"  {bone['bone_name']}: pos={bone['p']}")
-        
+
         receiver.stop()
-    
+
     Frame format:
         {
             "timestamp": str,        # Timestamp from mocap system
@@ -59,21 +59,22 @@ class MocapReceiver:
             ]
         }
     """
-    
-    def __init__(self, port: int = 11235):
+
+    def __init__(self, port: int = 11235, recorder=None):
         """
         Initialize the MocapReceiver.
-        
+
         Args:
             port: UDP port to listen on (default: 11235)
+            recorder: Optional OscRecorder instance to record incoming messages
         """
         self.port = port
+        self.recorder = recorder
         self.thread = None
         self.sock = None
         self.running = False
         self.lock = threading.Lock()
-        self.frame_buffers = {}
-        self.ready_frames = deque(maxlen=4)
+        self.assembler = MovinFrameAssembler(max_ready_frames=4)
         self.last_applied = None
         self.last_actor = ""
         self.last_ts = ""
@@ -84,8 +85,7 @@ class MocapReceiver:
     def reset(self):
         """Reset all internal state and buffers."""
         with self.lock:
-            self.frame_buffers.clear()
-            self.ready_frames.clear()
+            self.assembler = MovinFrameAssembler(max_ready_frames=4)
             self.last_applied = None
             self.last_actor = ""
             self.last_ts = ""
@@ -117,23 +117,23 @@ class MocapReceiver:
     def get_latest_frame(self):
         """
         Get the most recent complete frame, clearing older frames.
-        
+
         Returns:
             Frame dict if available, None otherwise.
             Frame contains: timestamp, actor, frame_idx, bones
         """
         with self.lock:
-            if not self.ready_frames:
-                return None
-            frame = self.ready_frames.pop()
-            self.ready_frames.clear()
-            self.last_applied = frame["frame_idx"]
+            frame = self.assembler.pop_latest_frame()
+            if frame is not None:
+                self.last_applied = frame["frame_idx"]
+                self.last_actor = frame["actor"]
+                self.last_ts = frame["timestamp"]
             return frame
 
     def get_receive_rate(self):
         """
         Get the current packet receive rate.
-        
+
         Returns:
             Receive rate in Hz (packets per second)
         """
@@ -150,8 +150,6 @@ class MocapReceiver:
         sock.settimeout(0.5)
         self.sock = sock
 
-        PARTIAL_TTL_SEC = 0.5
-
         try:
             while self.running:
                 try:
@@ -159,10 +157,7 @@ class MocapReceiver:
                 except socket.timeout:
                     now = time.time()
                     with self.lock:
-                        stale = [k for k, v in self.frame_buffers.items()
-                                if now - v.get("_t0", now) > PARTIAL_TTL_SEC]
-                        for k in stale:
-                            del self.frame_buffers[k]
+                        self.assembler.prune_stale(now=now)
                     continue
                 except OSError:
                     break
@@ -174,88 +169,12 @@ class MocapReceiver:
                     print(f"[MocapReceiver] OSC parse error: {e}")
                     continue
 
-                if address != "/MOVIN/Frame":
-                    continue
+                if self.recorder:
+                    self.recorder.record(address, args)
 
-                try:
-                    ts = args[0]
-                    actor_name = args[1]
-                    frame_idx = int(args[2])
-                    num_chunks = int(args[3])
-                    chunk_idx = int(args[4])
-                    total_bones = int(args[5])
-                    chunk_bones = int(args[6])
-                except Exception as e:
-                    print(f"[MocapReceiver] Bad header args: {e}")
-                    continue
-
-                # Parse bone data from this chunk
-                k = 7
-                bones_in_chunk = []
-                try:
-                    for _ in range(chunk_bones):
-                        bone_index = int(args[k]); k += 1
-                        parent_index = int(args[k]); k += 1
-                        bone_name = args[k]; k += 1
-                        px = float(args[k]); py = float(args[k+1]); pz = float(args[k+2]); k += 3
-                        # Rest quaternion: Unity sends (x,y,z,w), convert to (w,x,y,z)
-                        rqx = float(args[k]); rqy = float(args[k+1]); rqz = float(args[k+2]); rqw = float(args[k+3]); k += 4
-                        # Local quaternion: Unity sends (x,y,z,w), convert to (w,x,y,z)
-                        qx = float(args[k]); qy = float(args[k+1]); qz = float(args[k+2]); qw = float(args[k+3]); k += 4
-                        sx = float(args[k]); sy = float(args[k+1]); sz = float(args[k+2]); k += 3
-                        bones_in_chunk.append({
-                            "bone_index": bone_index,
-                            "parent_index": parent_index,
-                            "bone_name": bone_name,
-                            "p": (px, py, pz),
-                            "rq": (rqw, rqx, rqy, rqz),  # (w,x,y,z)
-                            "q": (qw, qx, qy, qz),        # (w,x,y,z)
-                            "s": (sx, sy, sz),
-                        })
-                except Exception as e:
-                    print(f"[MocapReceiver] Truncated/invalid bone block: {e}")
-                    continue
-
-                # Assemble frame from chunks
-                key = (actor_name, frame_idx)
                 now = time.time()
                 with self.lock:
-                    buf = self.frame_buffers.get(key)
-                    if buf is None:
-                        buf = {
-                            "_t0": now,
-                            "timestamp": ts,
-                            "actor": actor_name,
-                            "frame_idx": frame_idx,
-                            "num_chunks": num_chunks,
-                            "total_bones": total_bones,
-                            "chunks": {},
-                        }
-                        self.frame_buffers[key] = buf
-
-                    buf["chunks"][chunk_idx] = bones_in_chunk
-
-                    # Check if frame is complete
-                    if len(buf["chunks"]) >= buf["num_chunks"]:
-                        ordered = []
-                        complete = True
-                        for ci in range(buf["num_chunks"]):
-                            part = buf["chunks"].get(ci)
-                            if not part:
-                                complete = False
-                                break
-                            ordered.extend(part)
-                        if complete and ordered:
-                            frame = {
-                                "timestamp": buf["timestamp"],
-                                "actor": buf["actor"],
-                                "frame_idx": buf["frame_idx"],
-                                "bones": ordered,
-                            }
-                            self.ready_frames.append(frame)
-                            self.last_actor = buf["actor"]
-                            self.last_ts = buf["timestamp"]
-                        del self.frame_buffers[key]
+                    self.assembler.ingest(address, args, now=now)
 
                     # Update receive rate
                     self.recv_count += 1
