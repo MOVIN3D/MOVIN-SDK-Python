@@ -2,33 +2,32 @@
 
 A Python SDK for receiving real-time motion capture data from MOVIN Studio.
 
-MOVIN Studio streams motion capture data over UDP using the OSC protocol. This SDK provides a `MocapReceiver` class as its core component for receiving and parsing that data. Robot retargeting (`Retargeter`) and MuJoCo visualization (`MujocoViewer`) are included as usage examples.
+MOVIN Studio streams motion capture data over UDP using the OSC protocol. This SDK provides `MocapReceiver` as its core component for receiving and parsing that data. Robot retargeting (`Retargeter`), MuJoCo visualization (`MujocoViewer`), and Isaac Lab coordinate utilities are included.
 
-## Core Features
+## Features
 
-- **MocapReceiver**: Receive real-time motion capture data from MOVIN Studio via OSC over UDP
-- **OscReader**: Lightweight OSC binary packet parser
+- **Mocap reception**: receive and assemble `/MOVIN/Frame` OSC packets over UDP
+- **Recording & replay**: record live OSC streams to file and replay offline without MOVIN Studio
+- **Motion retargeting**: retarget human motion to Unitree G1 robots via IK
+- **Isaac Lab utilities**: coordinate conversion (Unity LH Y-up to Isaac RH Z-up) and MOVINMan mesh overlay via LBS
+- **MuJoCo viewer**: lightweight real-time viewer for retargeted robot motion
 
-## Included Examples
+## Supported Robots
 
-- **Retargeter**: Retarget received motion data to robot joint angles using IK
-- **MujocoViewer**: Real-time visualization with MuJoCo
-- **BVH File Support**: Load and retarget BVH motion capture files
+| Robot Type | Description | DoFs |
+|------------|-------------|------|
+| `unitree_g1` | Unitree G1 (standard) | 29 |
+| `unitree_g1_with_hands` | Unitree G1 with hands | 43 |
 
 ## Installation
-
-### Install from GitHub (Recommended)
 
 ```bash
 pip install git+https://github.com/MOVIN3D/MOVIN-SDK-Python.git
 ```
 
-### Install from Local Path
+Or from a local checkout:
 
 ```bash
-pip install /path/to/MOVIN-SDK-Python
-
-# Editable mode for development
 pip install -e /path/to/MOVIN-SDK-Python
 ```
 
@@ -36,7 +35,7 @@ pip install -e /path/to/MOVIN-SDK-Python
 
 The core `MocapReceiver` only uses the Python standard library (`socket`, `threading`, `struct`).
 
-The robot retargeting and MuJoCo visualization examples require additional packages:
+Retargeting, visualization, and Isaac Lab utilities require:
 
 ```
 numpy>=1.21.0
@@ -58,24 +57,33 @@ MOVIN-SDK-Python/
 │   └── bvh_to_robot.py             # BVH file → robot retargeting
 └── movin_sdk_python/
     ├── __init__.py
-    ├── mocap_receiver/             # Core: OSC/UDP reception
-    │   ├── mocap_receiver.py       # MocapReceiver class
-    │   └── osc_reader.py           # OSC protocol parser
-    ├── retargeter/                 # Example: robot retargeting
+    ├── mocap_receiver/              # Core: OSC/UDP reception
+    │   ├── mocap_receiver.py        # MocapReceiver class
+    │   ├── movin_frame_assembler.py # Chunked frame assembly logic
+    │   └── osc_reader.py            # OSC protocol parser
+    ├── recording/                   # Recording & replay
+    │   ├── osc_recorder.py          # OscRecorder — record OSC messages
+    │   ├── osc_player.py            # OscPlayer — play back recordings
+    │   └── replay_receiver.py       # ReplayMocapReceiver — drop-in offline replacement
+    ├── retargeter/                  # Robot retargeting
     │   ├── retargeter.py
-    │   ├── assets/                 # Robot models and meshes
-    │   └── ik_configs/             # IK configuration files
-    ├── viewer/                     # Example: MuJoCo visualization
+    │   ├── assets/                  # Robot models and meshes
+    │   └── ik_configs/              # IK configuration files
+    ├── viewer/                      # MuJoCo visualization
     │   └── mujoco_viewer.py
-    └── utils/                      # Utility functions
-        ├── bvh_loader.py
-        ├── fk_utils.py
-        └── quat_utils.py
+    └── utils/
+        ├── bvh_loader.py            # BVH file parsing
+        ├── fk_utils.py              # Forward kinematics, coordinate conversion
+        ├── quat_utils.py            # Quaternion math (wxyz format)
+        ├── isaac_lab_utils.py       # MOVIN-to-Isaac Lab coordinate helpers
+        └── movinman_mesh_utils.py   # MOVINMan mesh model and LBS skinning
 ```
 
-## Quick Start: Receiving Motion Capture Data
+## Quick Start
 
-Enable OSC output in MOVIN Studio, configure the IP and port, then receive data with the following code.
+### Receiving Motion Capture Data
+
+Enable OSC output in MOVIN Studio, configure the IP and port, then:
 
 ```python
 from movin_sdk_python import MocapReceiver
@@ -96,9 +104,29 @@ except KeyboardInterrupt:
     receiver.stop()
 ```
 
+### Recording & Replay
+
+```python
+from movin_sdk_python.recording import OscRecorder, ReplayMocapReceiver
+
+# Record a live session
+recorder = OscRecorder("session.pkl")
+receiver = MocapReceiver(port=11235, recorder=recorder)
+receiver.start()
+# ... run your pipeline ...
+receiver.stop()
+recorder.save()
+
+# Replay offline (same API as MocapReceiver)
+replay = ReplayMocapReceiver("session.pkl", realtime=True, loop=True)
+replay.start()
+frame = replay.get_latest_frame()
+replay.stop()
+```
+
 ## Frame Data Format
 
-`get_latest_frame()` returns a dictionary with the following structure:
+`get_latest_frame()` returns a dictionary:
 
 ```python
 {
@@ -120,14 +148,14 @@ except KeyboardInterrupt:
 }
 ```
 
-> Quaternions are provided in `(w, x, y, z)` order. The SDK internally converts from the `(x, y, z, w)` order used by MOVIN Studio (Unity).
+> Quaternions are in `(w, x, y, z)` order. The SDK converts from `(x, y, z, w)` used by MOVIN Studio (Unity).
 
 ## API Reference
 
 ### MocapReceiver
 
 ```python
-receiver = MocapReceiver(port=11235)
+receiver = MocapReceiver(port=11235, recorder=None)
 ```
 
 | Method | Description |
@@ -138,75 +166,61 @@ receiver = MocapReceiver(port=11235)
 | `get_receive_rate()` | Get the current packet receive rate in Hz |
 | `reset()` | Reset all internal buffers |
 
+Pass an `OscRecorder` instance as `recorder` to record incoming OSC messages for later replay.
+
 ### OscReader
 
-Use this to parse raw OSC binary packets sent by MOVIN Studio directly.
+Parse raw OSC binary packets from MOVIN Studio directly:
 
 ```python
 from movin_sdk_python import OscReader
 
 reader = OscReader(raw_bytes)
 address, args = reader.read_message()
-# address == "/MOVIN/Frame"
 ```
+
+### Recording & Replay
+
+| Class | Description |
+|-------|-------------|
+| `OscRecorder(path)` | Record OSC messages to a pickle file |
+| `OscPlayer(path)` | Load and iterate over recorded messages |
+| `ReplayMocapReceiver(path)` | Drop-in replacement for `MocapReceiver` using recorded data |
 
 ## Example Scripts
 
-### Receive and Print Mocap Data
-
 ```bash
+# Receive and print mocap data
 python examples/receive_mocap.py --port 11235
-python examples/receive_mocap.py --port 11235 --verbose
-```
 
-### Real-time Mocap → Robot Retargeting (Console)
-
-```bash
+# Retarget live mocap to robot (console)
 python examples/mocap_to_robot.py --port 11235 --robot unitree_g1 --human_height 1.75
-```
 
-### Real-time Mocap → Robot Retargeting + MuJoCo Viewer
-
-> **macOS**: The MuJoCo viewer must be launched with `mjpython` (included with the mujoco package).
-
-```bash
+# Retarget live mocap + MuJoCo viewer
 python examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
 
-# macOS
+# macOS: use mjpython instead of python
 mjpython examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
-```
 
-### BVH File → Robot Retargeting
-
-```bash
+# BVH file retargeting
 python examples/bvh_to_robot.py --bvh_file path/to/motion.bvh --human_height 1.75
 ```
 
-## Retargeting Example API
+## Retargeting
 
-For detailed documentation on the robot retargeting features, see [API.md](doc/API.md).
-
-### Supported Robots
-
-| Robot Type | Description | DoFs |
-|------------|-------------|------|
-| `unitree_g1` | Unitree G1 (standard) | 29 |
-| `unitree_g1_with_hands` | Unitree G1 with hands | 43 |
-
-### Retargeting Output Format
+For detailed documentation see [API.md](doc/API.md).
 
 The `retarget()` method returns a numpy array `qpos`:
 
-- `qpos[:3]` — Root position (x, y, z) in meters
-- `qpos[3:7]` — Root orientation quaternion (w, x, y, z)
-- `qpos[7:]` — Joint angles in radians
+- `qpos[:3]` -- Root position (x, y, z) in meters
+- `qpos[3:7]` -- Root orientation quaternion (w, x, y, z)
+- `qpos[7:]` -- Joint angles in radians
 
 ## Acknowledgments
 
-The URDF and STL mesh files for the Unitree G1 robot are sourced from [Unitree Robotics](https://github.com/unitreerobotics/unitree_ros).
-
-The motion retargeting approach is based on [GMR: General Motion Retargeting](https://github.com/YanjieZe/GMR).
+- Unitree G1 URDF/STL assets: [unitree_ros](https://github.com/unitreerobotics/unitree_ros)
+- Motion retargeting approach: [GMR: General Motion Retargeting](https://github.com/YanjieZe/GMR)
 
 ## License
 
-MIT License — see the [LICENSE](LICENSE) file for details.
+MIT License -- see the [LICENSE](LICENSE) file for details.
