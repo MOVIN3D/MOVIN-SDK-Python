@@ -61,7 +61,7 @@ class Retargeter:
         solver: str = "daqp",
         damping: float = 5e-1,
         verbose: bool = False,
-        use_velocity_limit: bool = False,
+        use_velocity_limit: bool = True,
     ):
         """
         Initialize the retargeter.
@@ -72,7 +72,7 @@ class Retargeter:
             solver: IK solver type ("daqp" or "quadprog")
             damping: IK damping factor
             verbose: Print debug information
-            use_velocity_limit: Enable velocity limits in IK
+            use_velocity_limit: Enable velocity limits in IK (3*pi rad/s per joint)
         """
         if robot_type not in ROBOT_XML_DICT:
             raise ValueError(f"Unknown robot type: {robot_type}. "
