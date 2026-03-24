@@ -5,6 +5,8 @@ This module provides:
     - bvh_loader: BVH file parsing and loading
     - fk_utils: Forward kinematics utilities for mocap data
     - quat_utils: Quaternion math utilities
+    - isaac_lab_utils: Coordinate conversion for Isaac Lab
+    - movinman_mesh_utils: MOVINMan mesh model and LBS skinning
 """
 
 from .bvh_loader import load_bvh_file

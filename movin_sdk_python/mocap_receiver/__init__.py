@@ -46,5 +46,6 @@ Frame format:
 
 from .mocap_receiver import MocapReceiver
 from .osc_reader import OscReader
+from .movin_frame_assembler import MovinFrameAssembler
 
-__all__ = ["MocapReceiver", "OscReader"]
+__all__ = ["MocapReceiver", "OscReader", "MovinFrameAssembler"]
