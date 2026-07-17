@@ -8,7 +8,7 @@ MOVIN Studio streams motion capture data over UDP using the OSC protocol. This S
 
 - **Mocap reception**: receive and assemble `/MOVIN/Frame` OSC packets over UDP
 - **Recording & replay**: record live OSC streams to file and replay offline without MOVIN Studio
-- **Motion retargeting**: retarget human motion to Unitree G1 robots via IK
+- **Motion retargeting**: retarget human motion to Unitree G1 robots via IK, supporting both the legacy MOVINMan and MOVINManV3 skeleton presets
 - **Isaac Lab utilities**: coordinate conversion (Unity LH Y-up to Isaac RH Z-up) and MOVINMan mesh overlay via LBS
 - **MuJoCo viewer**: lightweight real-time viewer for retargeted robot motion
 
@@ -64,7 +64,8 @@ MOVIN-SDK-Python/
     ├── recording/                   # Recording & replay
     │   ├── osc_recorder.py          # OscRecorder — record OSC messages
     │   ├── osc_player.py            # OscPlayer — play back recordings
-    │   └── replay_receiver.py       # ReplayMocapReceiver — drop-in offline replacement
+    │   ├── replay_receiver.py       # ReplayMocapReceiver — drop-in offline replacement
+    │   └── peek.py                  # peek_first_frame — read a recording's first frame
     ├── retargeter/                  # Robot retargeting
     │   ├── retargeter.py
     │   ├── assets/                  # Robot models and meshes
@@ -75,6 +76,7 @@ MOVIN-SDK-Python/
         ├── bvh_loader.py            # BVH file parsing
         ├── fk_utils.py              # Forward kinematics, coordinate conversion
         ├── quat_utils.py            # Quaternion math (wxyz format)
+        ├── skeleton_presets.py      # MOVINMan / MOVINManV3 skeleton preset definitions
         ├── isaac_lab_utils.py       # MOVIN-to-Isaac Lab coordinate helpers
         └── movinman_mesh_utils.py   # MOVINMan mesh model and LBS skinning
 ```
@@ -187,6 +189,8 @@ address, args = reader.read_message()
 | `OscPlayer(path)` | Load and iterate over recorded messages |
 | `ReplayMocapReceiver(path)` | Drop-in replacement for `MocapReceiver` using recorded data |
 
+`peek_first_frame(recording_path)` reads the first assembled frame from a recording (same shape as `get_latest_frame()`, or `None`) without starting a full `ReplayMocapReceiver` — handy for detecting the skeleton preset before replaying.
+
 ## Example Scripts
 
 ```bash
@@ -202,13 +206,15 @@ python examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human
 # macOS: use mjpython instead of python
 mjpython examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
 
-# BVH file retargeting
+# BVH file retargeting (auto-detects the source skeleton preset from the BVH)
 python examples/bvh_to_robot.py --bvh_file path/to/motion.bvh --human_height 1.75
 ```
 
 ## Retargeting
 
 For detailed documentation see [API.md](doc/API.md).
+
+`Retargeter(..., source_preset="movinman")` selects the source skeleton layout — `"movinman"` (legacy) or `"movinman_v3"` (MOVINManV3) — which determines the IK config loaded and the bones `get_required_bones()` expects. Use `detect_preset_from_bone_names()` from `movin_sdk_python.utils.skeleton_presets` to auto-detect the preset from a BVH file's or recording's bone names, as `examples/bvh_to_robot.py` does.
 
 The `retarget()` method returns a numpy array `qpos`:
 
