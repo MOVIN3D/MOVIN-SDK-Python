@@ -24,7 +24,8 @@ _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from movin_sdk_python import Retargeter
+from movin_sdk_python import Retargeter, load_bvh_file
+from movin_sdk_python.utils.skeleton_presets import detect_preset_from_bone_names
 
 
 def main():
@@ -74,18 +75,24 @@ def main():
     
     args = parser.parse_args()
     
+    # Load BVH file first so we can auto-detect the source skeleton preset
+    print(f"Loading BVH file: {args.bvh_file}")
+    frames, human_height, parents, bones = load_bvh_file(args.bvh_file, human_height=args.human_height)
+    print(f"Loaded {len(frames)} frames with {len(bones)} bones")
+
+    # Auto-detect the source skeleton preset from the BVH bone names
+    preset = detect_preset_from_bone_names(bones)
+    source_preset = getattr(preset, "name", preset)
+    print(f"Detected source preset: {source_preset}")
+
     # Initialize the retargeter
     print(f"Initializing Retargeter for {args.robot}...")
     retargeter = Retargeter(
         robot_type=args.robot,
         human_height=args.human_height,
         verbose=args.verbose,
+        source_preset=source_preset,
     )
-    
-    # Load BVH file
-    print(f"Loading BVH file: {args.bvh_file}")
-    frames, human_height, parents, bones = retargeter.load_bvh(args.bvh_file, human_height=args.human_height)
-    print(f"Loaded {len(frames)} frames with {len(bones)} bones")
     
     # Retarget each frame
     qpos_list = []

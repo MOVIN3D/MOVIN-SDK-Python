@@ -20,7 +20,11 @@ from pathlib import Path
 
 import numpy as np
 
-from .isaac_lab_utils import FORWARD_MODE_CHOICES, SKELETON_BODY_NAMES
+from .isaac_lab_utils import (
+    FORWARD_MODE_CHOICES,
+    SKELETON_BODY_NAMES,
+    DEFAULT_HIPS_HEIGHT,
+)
 from .bvh_loader import quat_fk
 from .quat_utils import (
     quat_mul,
@@ -102,9 +106,11 @@ def _quat_to_rotmat_batch(quats):
 class MOVINMeshModel:
     """Load pre-extracted mesh NPZ, implement LBS, produce posed vertices."""
 
-    def __init__(self, npz_path: str | None = None):
+    def __init__(self, npz_path: str | None = None, expected_bone_names=None):
         if npz_path is None:
             npz_path = str(_DEFAULT_NPZ_PATH)
+        if expected_bone_names is None:
+            expected_bone_names = SKELETON_BODY_NAMES
         if not os.path.exists(npz_path):
             raise FileNotFoundError(
                 f"Mesh NPZ not found: {npz_path}. "
@@ -114,18 +120,18 @@ class MOVINMeshModel:
         data = np.load(npz_path, allow_pickle=False)
         self._vertices = data["vertices"].astype(np.float32)           # (V, 3) geometry space
         self._faces = data["faces"].astype(np.int32)                   # (F, 3)
-        self._bone_names = list(data["bone_names"])                    # (51,)
-        self._inverse_bind_matrices = data["inverse_bind_matrices"].astype(np.float64)  # (51, 4, 4)
-        self._bone_parents = list(data["bone_parents"].astype(int))    # (51,) list
-        self._bone_offsets = data["bone_offsets"].astype(np.float64)    # (51, 3) Y-up meters
+        self._bone_names = list(data["bone_names"])                    # (B,)
+        self._inverse_bind_matrices = data["inverse_bind_matrices"].astype(np.float64)  # (B, 4, 4)
+        self._bone_parents = list(data["bone_parents"].astype(int))    # (B,) list
+        self._bone_offsets = data["bone_offsets"].astype(np.float64)    # (B, 3) Y-up meters
         self._weight_bone_indices = data["weight_bone_indices"].astype(np.int32)  # (V, 4)
         self._weight_values = data["weight_values"].astype(np.float32)           # (V, 4)
 
-        # Validate bone names match SKELETON_BODY_NAMES
-        if self._bone_names != list(SKELETON_BODY_NAMES):
+        # Validate bone names match the expected skeleton preset order
+        if self._bone_names != list(expected_bone_names):
             raise ValueError(
-                f"NPZ bone names do not match SKELETON_BODY_NAMES:\n"
-                f"  NPZ: {self._bone_names}\n  Expected: {list(SKELETON_BODY_NAMES)}"
+                f"NPZ bone names do not match expected bone names:\n"
+                f"  NPZ: {self._bone_names}\n  Expected: {list(expected_bone_names)}"
             )
 
         # Pre-compute homogeneous bind vertices (V, 4) for LBS
@@ -154,8 +160,9 @@ class MOVINMeshModel:
         """Pose the mesh using LBS and return vertices in Isaac Z-up space.
 
         Args:
-            local_quats_yup: (51, 4) wxyz quaternions in Y-up skeleton space.
-                These are delta rotations relative to the bind/rest pose.
+            local_quats_yup: (B, 4) wxyz quaternions in Y-up skeleton space,
+                where B is the mesh bone count.  These are delta rotations
+                relative to the bind/rest pose.
             root_pos_yup: (3,) root position in Y-up meters.
             forward_mode: "coord_equivalent" or "isaac_world".
 
@@ -165,30 +172,32 @@ class MOVINMeshModel:
         local_quats_yup = np.asarray(local_quats_yup, dtype=np.float64)
         root_pos_yup = np.asarray(root_pos_yup, dtype=np.float64).reshape(3)
 
-        if local_quats_yup.shape != (51, 4):
+        num_bones = len(self._bone_names)
+        if local_quats_yup.shape != (num_bones, 4):
             raise ValueError(
-                f"Expected local_quats_yup shape (51, 4), got {local_quats_yup.shape}"
+                f"Expected local_quats_yup shape ({num_bones}, 4), "
+                f"got {local_quats_yup.shape}"
             )
 
         # 1. Build local positions for FK
         #    lpos[0] = root position, lpos[1:] = bone offsets from NPZ
-        lpos = self._bone_offsets.copy()  # (51, 3)
+        lpos = self._bone_offsets.copy()  # (B, 3)
         lpos[0] = root_pos_yup
 
         # 2. Forward Kinematics → global quaternions + positions
         global_quats, global_pos = quat_fk(local_quats_yup, lpos, self._bone_parents)
-        # global_quats: (51, 4), global_pos: (51, 3)  — Y-up meters
+        # global_quats: (B, 4), global_pos: (B, 3)  — Y-up meters
 
         # 3. Build 4x4 world transforms from FK output
-        rot_mats = _quat_to_rotmat_batch(global_quats)  # (51, 3, 3)
-        world_transforms = np.zeros((51, 4, 4), dtype=np.float64)
+        rot_mats = _quat_to_rotmat_batch(global_quats)  # (B, 3, 3)
+        world_transforms = np.zeros((num_bones, 4, 4), dtype=np.float64)
         world_transforms[:, :3, :3] = rot_mats
         world_transforms[:, :3, 3] = global_pos
         world_transforms[:, 3, 3] = 1.0
 
         # 4. Skin matrices: skin_j = world_j @ ibm_j
         skin_matrices = np.einsum('jab,jbc->jac', world_transforms, self._inverse_bind_matrices)
-        # (51, 4, 4)
+        # (B, 4, 4)
 
         # 5. Per-vertex blending with up to 4 influences
         bi = self._weight_bone_indices   # (V, 4) int32
@@ -209,8 +218,8 @@ class MOVINMeshModel:
         return convert_movin_vertices_to_isaac(deformed_yup, forward_mode=forward_mode)
 
 
-def extract_movin_local_quats_yup(bones):
-    """Extract (51, 4) local quaternions + (3,) root pos from live OSC bones.
+def extract_movin_local_quats_yup(bones, skeleton_body_names=None):
+    """Extract (B, 4) local quaternions + (3,) root pos from live OSC bones.
 
     The MOVIN live stream sends bones in Unity left-handed Y-up coords.
     This function converts to right-handed Y-up (rest-pose-removed).
@@ -218,15 +227,21 @@ def extract_movin_local_quats_yup(bones):
     Args:
         bones: List of bone dicts from MocapReceiver with keys
             "bone_name", "p", "q", "rq".
+        skeleton_body_names: DFS body order incl. root "Hips".
+            Defaults to the legacy SKELETON_BODY_NAMES.
 
     Returns:
         (local_quats_yup, root_pos_yup) where:
-            local_quats_yup: (51, 4) wxyz quaternions, rest-pose-removed
+            local_quats_yup: (B, 4) wxyz quaternions, rest-pose-removed
+                (B = len(skeleton_body_names))
             root_pos_yup: (3,) Y-up meters
     """
+    if skeleton_body_names is None:
+        skeleton_body_names = SKELETON_BODY_NAMES
+
     bone_by_name = {b["bone_name"]: b for b in bones}
 
-    local_quats = np.zeros((51, 4), dtype=np.float64)
+    local_quats = np.zeros((len(skeleton_body_names), 4), dtype=np.float64)
     local_quats[:, 0] = 1.0  # identity default
 
     # Root position: combine Root + Hips
@@ -256,10 +271,10 @@ def extract_movin_local_quats_yup(bones):
         root_pos_yup = p_rh
         local_quats[0] = quat_normalize(quat_mul(quat_conj(rq_rh), q_rh))
     else:
-        root_pos_yup = np.array([0.0, 0.8698, 0.0])
+        root_pos_yup = np.array([0.0, DEFAULT_HIPS_HEIGHT, 0.0])
 
     # Non-root bones
-    for i, name in enumerate(SKELETON_BODY_NAMES[1:], start=1):
+    for i, name in enumerate(skeleton_body_names[1:], start=1):
         bone = bone_by_name.get(name)
         if bone is None:
             continue
@@ -270,8 +285,8 @@ def extract_movin_local_quats_yup(bones):
     return local_quats, root_pos_yup
 
 
-def extract_bvh_local_quats_yup(quats, positions, bone_names):
-    """Extract (51, 4) local quaternions + (3,) root pos from a BVH frame.
+def extract_bvh_local_quats_yup(quats, positions, bone_names, skeleton_body_names=None):
+    """Extract (B, 4) local quaternions + (3,) root pos from a BVH frame.
 
     BVH data is already in right-handed Y-up coordinates.
 
@@ -279,15 +294,21 @@ def extract_bvh_local_quats_yup(quats, positions, bone_names):
         quats: (J, 4) local quaternions in (w, x, y, z) for this frame.
         positions: (J, 3) local positions for this frame.
         bone_names: List of BVH bone names (J entries).
+        skeleton_body_names: DFS body order incl. root "Hips".
+            Defaults to the legacy SKELETON_BODY_NAMES.
 
     Returns:
         (local_quats_yup, root_pos_yup) where:
-            local_quats_yup: (51, 4) wxyz quaternions
+            local_quats_yup: (B, 4) wxyz quaternions
+                (B = len(skeleton_body_names))
             root_pos_yup: (3,) Y-up meters (NOTE: caller must apply bvh_scale)
     """
+    if skeleton_body_names is None:
+        skeleton_body_names = SKELETON_BODY_NAMES
+
     bvh_name_to_idx = {name: i for i, name in enumerate(bone_names)}
 
-    local_quats = np.zeros((51, 4), dtype=np.float64)
+    local_quats = np.zeros((len(skeleton_body_names), 4), dtype=np.float64)
     local_quats[:, 0] = 1.0  # identity default
 
     # Root position and rotation from BVH Hips (index 0)
@@ -295,7 +316,7 @@ def extract_bvh_local_quats_yup(quats, positions, bone_names):
     local_quats[0] = quats[0]
 
     # Non-root bones
-    for i, name in enumerate(SKELETON_BODY_NAMES[1:], start=1):
+    for i, name in enumerate(skeleton_body_names[1:], start=1):
         bvh_idx = bvh_name_to_idx.get(name)
         if bvh_idx is None:
             continue

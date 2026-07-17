@@ -9,8 +9,7 @@ All quaternions are in (w, x, y, z) format.
 
 import numpy as np
 
-import warnings
-
+from .skeleton_presets import MOVINMAN_PRESET
 from .quat_utils import (
     quat_mul,
     quat_conj,
@@ -27,32 +26,17 @@ Q_YUP_TO_ZUP_CONJ = quat_conj(Q_YUP_TO_ZUP)
 Q_ISAAC_WORLD_FORWARD = np.array([0.7071067811865476, 0.0, 0.0, 0.7071067811865476])
 FORWARD_MODE_CHOICES = ("coord_equivalent", "isaac_world")
 
+# Legacy aliases sourced from the movinman preset (single source of truth:
+# skeleton_presets.MOVINMAN_PRESET).  Kept as lists for backward compatibility.
+
 # Default Hips height from MOVINMan.fbx skeleton (meters, Z-up)
-DEFAULT_HIPS_HEIGHT = 0.8698
+DEFAULT_HIPS_HEIGHT = MOVINMAN_PRESET.default_hips_height
 
 # DFS body order matching the MJCF skeleton hierarchy
-SKELETON_BODY_NAMES = [
-    "Hips",
-    "Spine", "Spine1",
-    "Neck", "Head",
-    "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
-    "LeftHandThumb1", "LeftHandThumb2", "LeftHandThumb3",
-    "LeftHandIndex1", "LeftHandIndex2", "LeftHandIndex3",
-    "LeftHandMiddle1", "LeftHandMiddle2", "LeftHandMiddle3",
-    "LeftHandRing1", "LeftHandRing2", "LeftHandRing3",
-    "LeftHandPinky1", "LeftHandPinky2", "LeftHandPinky3",
-    "RightShoulder", "RightArm", "RightForeArm", "RightHand",
-    "RightHandThumb1", "RightHandThumb2", "RightHandThumb3",
-    "RightHandIndex1", "RightHandIndex2", "RightHandIndex3",
-    "RightHandMiddle1", "RightHandMiddle2", "RightHandMiddle3",
-    "RightHandRing1", "RightHandRing2", "RightHandRing3",
-    "RightHandPinky1", "RightHandPinky2", "RightHandPinky3",
-    "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase",
-    "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase",
-]
+SKELETON_BODY_NAMES = list(MOVINMAN_PRESET.body_names)
 
 # Non-root bones in skeleton order (each gets 3 DOFs: _x, _y, _z)
-SKELETON_JOINT_BONES = SKELETON_BODY_NAMES[1:]  # everything except Hips
+SKELETON_JOINT_BONES = list(MOVINMAN_PRESET.joint_bones)  # everything except Hips
 
 
 def yup_to_zup_vec(v):
@@ -305,12 +289,19 @@ def build_dof_reorder_map(isaac_joint_names, skeleton_bone_names=None):
 
     # Build reorder map: skeleton_idx -> isaac_idx
     reorder_map = []
+    missing = []
     for name in expected_names:
         if name in isaac_name_to_idx:
             reorder_map.append(isaac_name_to_idx[name])
         else:
-            warnings.warn(f"Joint '{name}' not found in Isaac Lab articulation")
-            reorder_map.append(i)  # map to own index as fallback
+            missing.append(name)
+
+    if missing:
+        raise ValueError(
+            f"{len(missing)} joint(s) not found in Isaac Lab articulation: "
+            f"{missing}. The MJCF and skeleton preset must match "
+            f"(check the --preset selection against the loaded MJCF)."
+        )
 
     reorder_map = np.array(reorder_map, dtype=np.int64)
 
