@@ -32,6 +32,16 @@ IK_CONFIG_DICT = {
     "unitree_g1_with_hands": IK_CONFIG_ROOT / "bvh_optitrack_to_g1.json",
 }
 
+# IK config paths keyed by (robot_type, source_preset). The legacy "movinman"
+# preset reuses the optitrack config above; "movinman_v3" swaps the torso
+# mapping from Spine1 to Spine3.
+IK_CONFIG_BY_PRESET = {
+    ("unitree_g1", "movinman"): IK_CONFIG_ROOT / "bvh_optitrack_to_g1.json",
+    ("unitree_g1_with_hands", "movinman"): IK_CONFIG_ROOT / "bvh_optitrack_to_g1.json",
+    ("unitree_g1", "movinman_v3"): IK_CONFIG_ROOT / "bvh_movin_v3_to_g1.json",
+    ("unitree_g1_with_hands", "movinman_v3"): IK_CONFIG_ROOT / "bvh_movin_v3_to_g1.json",
+}
+
 
 class Retargeter:
     """
@@ -62,10 +72,11 @@ class Retargeter:
         damping: float = 5e-1,
         verbose: bool = False,
         use_velocity_limit: bool = True,
+        source_preset: str = "movinman",
     ):
         """
         Initialize the retargeter.
-        
+
         Args:
             robot_type: Robot type ("unitree_g1" or "unitree_g1_with_hands")
             human_height: Human height in meters for scaling
@@ -73,12 +84,22 @@ class Retargeter:
             damping: IK damping factor
             verbose: Print debug information
             use_velocity_limit: Enable velocity limits in IK (3*pi rad/s per joint)
+            source_preset: Source skeleton preset ("movinman" or "movinman_v3").
+                Selects the IK config; "movinman_v3" maps the torso to Spine3.
         """
         if robot_type not in ROBOT_XML_DICT:
             raise ValueError(f"Unknown robot type: {robot_type}. "
                            f"Supported: {list(ROBOT_XML_DICT.keys())}")
-        
+
+        if (robot_type, source_preset) not in IK_CONFIG_BY_PRESET:
+            valid_presets = sorted(
+                {preset for (_, preset) in IK_CONFIG_BY_PRESET.keys()}
+            )
+            raise ValueError(f"Unknown source preset: {source_preset}. "
+                           f"Supported: {valid_presets}")
+
         self.robot_type = robot_type
+        self.source_preset = source_preset
         self.verbose = verbose
         
         # Load the robot model
@@ -106,7 +127,7 @@ class Retargeter:
             self.robot_motor_names[motor_name] = i
 
         # Load the IK config
-        ik_config_path = IK_CONFIG_DICT[robot_type]
+        ik_config_path = IK_CONFIG_BY_PRESET[(robot_type, source_preset)]
         if verbose:
             print(f"Loading IK config: {ik_config_path}")
         with open(ik_config_path) as f:
@@ -406,7 +427,11 @@ class Retargeter:
         lowest_pos = np.inf
 
         for body_name in human_data.keys():
-            if "Foot" not in body_name and "foot" not in body_name:
+            # Match feet/toes. _scale_human_data filters out plain "Foot" bones
+            # (they are absent from the human_scale_table), so also match the
+            # "ToeBase" bones that survive the scaling step.
+            if ("Foot" not in body_name and "foot" not in body_name
+                    and "ToeBase" not in body_name and "toe" not in body_name):
                 continue
             pos, quat = human_data[body_name]
             if pos[2] < lowest_pos:
