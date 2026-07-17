@@ -47,9 +47,12 @@ Retargeter(
     solver="daqp",               # IK solver
     damping=0.5,                 # IK damping
     verbose=False,               # Debug output
-    use_velocity_limit=False,    # Enable velocity limits
+    use_velocity_limit=True,     # Enable velocity limits (default)
+    source_preset="movinman",    # Source skeleton preset ("movinman" or "movinman_v3")
 )
 ```
+
+`source_preset` selects the source skeleton layout: `"movinman"` (legacy 51-body MOVINMan) or `"movinman_v3"` (54-joint MOVINManV3, adding `Spine2`/`Spine3`/`Neck1` and full finger chains). It selects which IK config is loaded — `"movinman_v3"` maps the G1 torso from `Spine3` instead of `Spine1` — and the constructor raises `ValueError` for an unrecognized preset. See [Skeleton Presets](#skeleton-presets) below for auto-detecting the preset from bone names.
 
 **Methods:**
 
@@ -61,7 +64,7 @@ Retargeter(
     - `bones`: list of bone names
 - `process_mocap_frame(bones)` - Process real-time mocap frame
 - `retarget(human_data, offset_to_ground=False)` - Retarget to robot
-- `get_required_bones()` - Get set of required bone names
+- `get_required_bones()` - Get set of required bone names (depends on `source_preset`)
 - `set_ground_offset(offset)` - Set ground height offset
 
 ## MujocoViewer Class
@@ -109,6 +112,36 @@ Load a BVH file and return frame data with skeleton hierarchy information.
 - `bones`: List of bone names
 
 This function is similar to `BVHAnimation` from `read_bvh()` but returns processed frame data with coordinate transformations applied (Y-up to Z-up).
+
+### Skeleton Presets
+
+```python
+from movin_sdk_python.utils.skeleton_presets import get_preset, detect_preset_from_bone_names
+
+preset = get_preset("movinman_v3")
+preset = detect_preset_from_bone_names(bone_names)
+```
+
+`movin_sdk_python.utils.skeleton_presets` is the single source of truth for MOVINMan skeleton layouts. Two presets are defined:
+
+| Preset | Body count | Notes |
+|--------|------------|-------|
+| `movinman` | 51 (`MOVINMan.fbx`, legacy) | Has a mesh overlay asset (`movinman_mesh.npz`) |
+| `movinman_v3` | 54 (`MOVINManV3`) | Adds `Spine2`, `Spine3`, `Neck1`, and full finger chains; no mesh overlay asset |
+
+**`SkeletonPreset`** (frozen dataclass):
+- `name`: preset identifier (`"movinman"` or `"movinman_v3"`)
+- `body_names`: DFS body order including the root `"Hips"`
+- `default_hips_height`: rest-pose hips height in meters (Z-up)
+- `mjcf_filename`: MJCF asset filename
+- `mesh_npz_filename`: LBS mesh asset filename, or `None` if the preset has no mesh overlay
+- `joint_bones` (property): `body_names` minus the root — the bones that each drive 3 DOFs
+
+**Functions:**
+- `get_preset(name)` - Look up a preset by name; raises `KeyError` if unknown
+- `detect_preset_from_bone_names(names)` - Return the V3 preset if any V3-only bone (`Spine3`, `Neck1`) is present in `names`, else the legacy preset
+
+Several utilities in `isaac_lab_utils.py` and `movinman_mesh_utils.py` accept an optional bone-list parameter to target a non-default preset, defaulting to the legacy `movinman` layout: `extract_movin_local_quats_yup` / `extract_bvh_local_quats_yup` take `skeleton_body_names=` (full body list incl. `Hips`), `MOVINMeshModel(...)` takes `expected_bone_names=` (also a full body list incl. `Hips`), and `process_movin_bones_for_isaaclab` / `process_bvh_frame_for_isaaclab` / `build_dof_reorder_map` take `skeleton_bone_names=` (non-root list). `build_dof_reorder_map` raises `ValueError` if any expected joint is missing from the Isaac Lab articulation.
 
 ## Output Format
 
