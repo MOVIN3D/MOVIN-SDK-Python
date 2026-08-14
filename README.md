@@ -12,13 +12,6 @@ MOVIN Studio streams motion capture data over UDP using the OSC protocol. This S
 - **Isaac Lab utilities**: coordinate conversion (Unity LH Y-up to Isaac RH Z-up) and MOVINMan mesh overlay via LBS
 - **MuJoCo viewer**: lightweight real-time viewer for retargeted robot motion
 
-## Supported Robots
-
-| Robot Type | Description | DoFs |
-|------------|-------------|------|
-| `unitree_g1` | Unitree G1 (standard) | 29 |
-| `unitree_g1_with_hands` | Unitree G1 with hands | 43 |
-
 ## Installation
 
 ```bash
@@ -213,6 +206,13 @@ python examples/bvh_to_robot.py --bvh_file path/to/motion.bvh --human_height 1.7
 ## Retargeting
 
 For detailed documentation see [API.md](doc/API.md).
+
+### Supported Robots
+
+| Robot Type | Description | DoFs |
+|------------|-------------|------|
+| `unitree_g1` | Unitree G1 (standard) | 29 |
+| `unitree_g1_with_hands` | Unitree G1 with hands | 43 |
 
 `Retargeter(..., source_preset="movinman")` selects the source skeleton layout — `"movinman"` (legacy) or `"movinman_v3"` (MOVINManV3) — which determines the IK config loaded and the bones `get_required_bones()` expects. Use `detect_preset_from_bone_names()` from `movin_sdk_python.utils.skeleton_presets` to auto-detect the preset from a BVH file's or recording's bone names, as `examples/bvh_to_robot.py` does.
 
