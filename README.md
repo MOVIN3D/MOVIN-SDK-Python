@@ -2,7 +2,7 @@
 
 A Python SDK for receiving real-time motion capture data from MOVIN Studio.
 
-MOVIN Studio streams motion capture data over UDP using the OSC protocol. This SDK provides `MocapReceiver` as its core component for receiving and parsing that data. Robot retargeting (`Retargeter`), MuJoCo visualization (`MujocoViewer`), and Isaac Lab coordinate utilities are included.
+MOVIN Studio streams motion capture data over UDP using the OSC protocol. This SDK provides `MocapReceiver` as its core component for receiving and parsing that data. Robot retargeting (`Retargeter`), MuJoCo visualization (`MujocoViewer`), and Isaac Lab coordinate utilities are provided as optional applications built on top of it.
 
 ## Features
 
