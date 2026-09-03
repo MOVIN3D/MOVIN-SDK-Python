@@ -314,6 +314,12 @@ Key configurable functions include:
 - `process_movin_bones_for_isaaclab(..., skeleton_bone_names=...)`
 - `build_dof_reorder_map(..., skeleton_bone_names=...)`
 - `MOVINMeshModel(..., expected_bone_names=...)`
+- `hips_global_transform_rh(bones)` / `find_stream_root_bone(bones)`
+
+The Isaac Lab and mesh helpers locate the actor's global pose by walking the
+streamed `parent_index` chain from `Hips` up to the stream root. The root
+bone's name is not inspected, so `Root` (legacy MOVINMan), `RootBone`
+(MOVINManV3), and other exporter names all work.
 
 Use full body lists, including `Hips`, for `skeleton_body_names` and
 `expected_bone_names`. Use non-root joint lists for `skeleton_bone_names`.
