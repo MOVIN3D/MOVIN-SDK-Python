@@ -108,6 +108,64 @@ def _convert_bone(bone):
     return p_rh, q_local
 
 
+def find_stream_root_bone(bones):
+    """Return the bone at the top of the streamed hierarchy, or None.
+
+    The root is the bone whose ``parent_index`` is negative (or points at a
+    bone that is not part of the frame).  Its name is not inspected: legacy
+    MOVINMan streams call it ``Root``, MOVINManV3 streams call it
+    ``RootBone``, and other exporters may use other names.
+    """
+    by_index = {b["bone_index"]: b for b in bones if "bone_index" in b}
+    for bone in bones:
+        parent_index = bone.get("parent_index", -1)
+        if parent_index is None or parent_index < 0 or parent_index not in by_index:
+            return bone
+    return None
+
+
+def hips_global_transform_rh(bones):
+    """Global right-handed Y-up transform of the ``Hips`` bone.
+
+    MOVIN streams parent ``Hips`` under a stream root bone that carries the
+    actor's global transform while ``Hips`` is expressed locally to it.  The
+    chain is walked through ``parent_index`` (not bone names), so it works for
+    a root called ``Root`` (legacy MOVINMan), ``RootBone`` (MOVINManV3), any
+    other name, a deeper chain of ancestors, or a stream whose ``Hips`` is
+    itself the root.
+
+    Returns:
+        ``(pos_rh, q_rh)`` with the rest pose removed from the rotation, or
+        None when the frame has neither a ``Hips`` bone nor a root bone.
+        Without a ``Hips`` bone the stream root's own transform is returned.
+    """
+    by_index = {b["bone_index"]: b for b in bones if "bone_index" in b}
+    start = next((b for b in bones if b["bone_name"] == "Hips"), None)
+    if start is None:
+        start = find_stream_root_bone(bones)
+    if start is None:
+        return None
+
+    pos_rh, q_rh = _convert_bone(start)
+    visited = {start.get("bone_index")}
+    parent_index = start.get("parent_index", -1)
+    while (
+        parent_index is not None
+        and parent_index >= 0
+        and parent_index in by_index
+        and parent_index not in visited
+    ):
+        parent = by_index[parent_index]
+        visited.add(parent_index)
+        p_parent_rh, q_parent_rh = _convert_bone(parent)
+        # child global = parent.pos + rotate(child.local_pos, parent.rot)
+        pos_rh = p_parent_rh + rotate_vec_by_quat(pos_rh, q_parent_rh)
+        # child global rot = parent.rot * child.local_rot
+        q_rh = quat_normalize(quat_mul(q_parent_rh, q_rh))
+        parent_index = parent.get("parent_index", -1)
+    return pos_rh, q_rh
+
+
 def process_movin_bones_for_isaaclab(
     bones,
     skeleton_bone_names=None,
@@ -144,33 +202,18 @@ def process_movin_bones_for_isaaclab(
     for bone in bones:
         bone_by_name[bone["bone_name"]] = bone
 
-    # Process root (Root + Hips)
-    # MOVIN streams normally send "Root" (global transform) + "Hips"
-    # (local to Root), but some streams provide only a global "Hips" bone.
-    # We combine Root + Hips into the MJCF freejoint (global position + rotation).
-    movin_root = bone_by_name.get("Root")
-    hips_bone = bone_by_name.get("Hips")
-
-    if hips_bone is None and movin_root is None:
+    # Process root: the streamed hierarchy is Root -> Hips (root carries the
+    # global transform, Hips is local to it) or a lone global Hips.  Resolve it
+    # through parent_index so the root bone's name ("Root", "RootBone", ...)
+    # does not matter, then map the global Hips pose onto the MJCF freejoint.
+    hips_transform = hips_global_transform_rh(bones)
+    if hips_transform is None:
         root_pos_zup = np.array([0.0, 0.0, DEFAULT_HIPS_HEIGHT])
         root_quat_zup = np.array([1.0, 0.0, 0.0, 0.0])
-    elif movin_root is not None and hips_bone is not None:
-        # Live stream: Root carries global transform, Hips is local to Root
-        p_root_rh, q_root = _convert_bone(movin_root)
-        p_hips_rh, q_hips = _convert_bone(hips_bone)
-
-        # Global Hips position = Root.pos + rotate(Hips.local_pos, Root.rot)
-        global_pos = p_root_rh + rotate_vec_by_quat(p_hips_rh, q_root)
-        # Global Hips rotation = Root.rot * Hips.local_rot
-        global_rot = quat_normalize(quat_mul(q_root, q_hips))
-
-        root_pos_zup = yup_to_zup_vec(global_pos)
-        root_quat_zup = yup_to_zup_quat(global_rot)
     else:
-        # Hips only (no separate Root bone)
-        p_rh, q_local = _convert_bone(hips_bone or movin_root)
-        root_pos_zup = yup_to_zup_vec(p_rh)
-        root_quat_zup = yup_to_zup_quat(q_local)
+        p_hips_rh, q_hips_rh = hips_transform
+        root_pos_zup = yup_to_zup_vec(p_hips_rh)
+        root_quat_zup = yup_to_zup_quat(q_hips_rh)
 
     root_pos_zup, root_quat_zup = _apply_forward_mode_to_root(
         root_pos_zup, root_quat_zup, forward_mode

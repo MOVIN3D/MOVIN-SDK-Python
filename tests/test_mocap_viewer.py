@@ -54,6 +54,22 @@ class MocapViewerTests(unittest.TestCase):
             MocapViewer._camera_target(positions, bones), positions[0]
         )
 
+    def test_camera_follows_hierarchy_root_when_hips_is_absent(self):
+        import numpy as np
+
+        from movin_sdk_python.viewer.mocap_viewer import MocapViewer
+
+        frame = self.frame()
+        frame["bones"][0]["bone_name"] = "RootBone"
+        frame["bones"][1]["bone_name"] = "Chest"
+        frame["bones"][1]["p"] = (0.0, 1.0, 0.0)
+        positions, _, bones = MocapViewer._stick_geometry(frame)
+        # Dict order puts the child first; the root must still win.
+        reordered = {1: bones[1], 0: bones[0]}
+        np.testing.assert_array_equal(
+            MocapViewer._camera_target(positions, reordered), positions[0]
+        )
+
     def test_invalid_frame_is_rejected(self):
         from movin_sdk_python.viewer.mocap_viewer import MocapViewer
 

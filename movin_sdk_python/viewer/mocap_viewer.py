@@ -218,10 +218,15 @@ class MocapViewer:
 
     @staticmethod
     def _camera_target(positions, bone_by_index):
-        for preferred_name in ("Hips", "Root"):
-            for bone_index, bone in bone_by_index.items():
-                if bone["bone_name"] == preferred_name and bone_index in positions:
-                    return positions[bone_index]
+        for bone_index, bone in bone_by_index.items():
+            if bone["bone_name"] == "Hips" and bone_index in positions:
+                return positions[bone_index]
+        # No Hips: follow the hierarchy root whatever it is called
+        # ("Root" in legacy streams, "RootBone" in MOVINManV3 streams, ...).
+        for bone_index, bone in bone_by_index.items():
+            parent_index = bone.get("parent_index", -1)
+            if (parent_index is None or int(parent_index) < 0) and bone_index in positions:
+                return positions[bone_index]
         return next(iter(positions.values()))
 
     def on_frame(self, frame):

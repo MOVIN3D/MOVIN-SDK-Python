@@ -24,13 +24,13 @@ from .isaac_lab_utils import (
     FORWARD_MODE_CHOICES,
     SKELETON_BODY_NAMES,
     DEFAULT_HIPS_HEIGHT,
+    hips_global_transform_rh,
 )
 from .quat_utils import (
     quat_mul,
     quat_conj,
     quat_fk,
     quat_normalize,
-    unity_to_opengl_vec,
     unity_to_opengl_quat,
 )
 
@@ -244,34 +244,13 @@ def extract_movin_local_quats_yup(bones, skeleton_body_names=None):
     local_quats = np.zeros((len(skeleton_body_names), 4), dtype=np.float64)
     local_quats[:, 0] = 1.0  # identity default
 
-    # Root position: combine Root + Hips
-    movin_root = bone_by_name.get("Root")
-    hips_bone = bone_by_name.get("Hips")
-
-    if movin_root is not None and hips_bone is not None:
-        # Live stream: Root carries global transform, Hips is local to Root
-        p_root_rh = unity_to_opengl_vec(np.array(movin_root["p"], dtype=np.float64))
-        q_root_rh = unity_to_opengl_quat(np.array(movin_root["q"], dtype=np.float64))
-        rq_root_rh = unity_to_opengl_quat(np.array(movin_root["rq"], dtype=np.float64))
-        q_root_local = quat_normalize(quat_mul(quat_conj(rq_root_rh), q_root_rh))
-
-        p_hips_rh = unity_to_opengl_vec(np.array(hips_bone["p"], dtype=np.float64))
-        q_hips_rh = unity_to_opengl_quat(np.array(hips_bone["q"], dtype=np.float64))
-        rq_hips_rh = unity_to_opengl_quat(np.array(hips_bone["rq"], dtype=np.float64))
-        q_hips_local = quat_normalize(quat_mul(quat_conj(rq_hips_rh), q_hips_rh))
-
-        # Global Hips = Root * Hips
-        from .quat_utils import rotate_vec_by_quat
-        root_pos_yup = p_root_rh + rotate_vec_by_quat(p_hips_rh, q_root_local)
-        local_quats[0] = quat_normalize(quat_mul(q_root_local, q_hips_local))
-    elif hips_bone is not None:
-        p_rh = unity_to_opengl_vec(np.array(hips_bone["p"], dtype=np.float64))
-        q_rh = unity_to_opengl_quat(np.array(hips_bone["q"], dtype=np.float64))
-        rq_rh = unity_to_opengl_quat(np.array(hips_bone["rq"], dtype=np.float64))
-        root_pos_yup = p_rh
-        local_quats[0] = quat_normalize(quat_mul(quat_conj(rq_rh), q_rh))
-    else:
+    # Root: global Hips pose, resolved through the streamed parent_index chain
+    # (root bone name is irrelevant: "Root", "RootBone", ...).
+    hips_transform = hips_global_transform_rh(bones)
+    if hips_transform is None:
         root_pos_yup = np.array([0.0, DEFAULT_HIPS_HEIGHT, 0.0])
+    else:
+        root_pos_yup, local_quats[0] = hips_transform
 
     # Non-root bones
     for i, name in enumerate(skeleton_body_names[1:], start=1):
