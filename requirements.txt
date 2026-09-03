@@ -1,4 +1,5 @@
-numpy>=1.21.0
-scipy>=1.7.0
-mujoco>=3.0.0
-mink>=0.1.0
+# The receiver, recorder, and replay APIs have no third-party dependencies.
+# Install optional features from the project root with one of:
+#   pip install -e ".[retargeting]"
+#   pip install -e ".[viewer]"
+#   pip install -e ".[all]"

@@ -38,8 +38,8 @@ MOVINMAN_BODY_NAMES = (
     "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase",
 )
 
-# DFS body order of the MOVINManV3 skeleton (MOVINManV3_Tpose.bvh).  Adds
-# Spine2/Spine3/Neck1 vs legacy; Neck & both Shoulders parent under Spine3.
+# DFS body order of the MOVINManV3 skeleton. Adds Spine2/Spine3/Neck1 vs
+# legacy; Neck and both shoulders are parented under Spine3.
 MOVINMAN_V3_BODY_NAMES = (
     "Hips",
     "Spine", "Spine1", "Spine2", "Spine3",

@@ -1,152 +1,284 @@
-# API Reference
+# Core API Reference
 
-## MocapReceiver Class
+This document covers the APIs included in the default MOVIN SDK Python
+installation: mocap reception, recording, playback, and replay.
 
-```python3
-MocapReceiver(port=11235)
+No Retargeter, Viewer, MuJoCo, Mink, NumPy, or SciPy installation is required
+for anything in this document. See [Optional Extensions](OPTIONAL_EXTENSIONS.md)
+for robot retargeting and visualization.
+
+## Public Core Imports
+
+```python
+from movin_sdk_python import (
+    FrameProcessor,
+    FrameSink,
+    MissingOptionalDependencyError,
+    MocapReceiver,
+    MovinFrameAssembler,
+    MovinSession,
+    OscPlayer,
+    OscReader,
+    OscRecorder,
+    ReplayMocapReceiver,
+    peek_first_frame,
+)
 ```
 
-Receives mocap data from MOVIN via OSC over UDP.
+## `MovinSession`
 
-**Methods:**
+`MovinSession` is the primary high-level API. It owns the receiver lifecycle,
+can attach/detach a raw OSC recorder, and provides explicit extension hooks.
 
-- `start()` - Start the background receiver thread
-- `stop()` - Stop the receiver and cleanup
-- `get_latest_frame()` - Get the most recent complete frame (or None)
-- `get_receive_rate()` - Get current packet receive rate in Hz
-- `reset()` - Reset all internal buffers
+```python
+MovinSession(
+    port=11235,
+    *,
+    host="0.0.0.0",
+    receiver=None,
+    processors=None,
+    sinks=None,
+    on_extension_error=None,
+)
+```
 
-**Frame Format:**
+### Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `host` | Local IPv4 address or hostname used when the session creates its default receiver; `0.0.0.0` listens on every local IPv4 interface |
+| `port` | UDP port used when the session creates its default `MocapReceiver` |
+| `receiver` | Optional receiver-compatible object; defaults to `MocapReceiver(host=host, port=port)` |
+| `processors` | Ordered iterable of objects implementing `process(frame)` |
+| `sinks` | Iterable of objects implementing `on_frame(frame)` |
+| `on_extension_error` | Optional callback receiving `(extension, exception)` |
+
+### Lifecycle and recording
+
+| Member | Behavior |
+|--------|----------|
+| `start()` | Starts the receiver once and returns the session |
+| `stop()` | Stops the receiver and saves an active recording |
+| `is_running` | `True` after `start()` and before `stop()` |
+| `start_recording(path, stream_type="auto")` | Attaches a new `OscRecorder` to the original OSC stream |
+| `stop_recording(save=True)` | Detaches and optionally saves the recorder; returns it or `None` |
+| `is_recording` | `True` while a recorder is attached |
+
+Attach recording before starting reception when the complete stream, including
+the first packet, must be retained:
+
+```python
+from movin_sdk_python import MovinSession
+
+session = MovinSession(host="0.0.0.0", port=11235)
+session.start_recording("session.pkl")
+
+with session:
+    frame = session.get_latest_frame()
+```
+
+The context manager calls `start()` on entry and `stop()` on exit. An active
+recording is saved even when receiver cleanup raises an exception.
+
+### Frame access and extension dispatch
+
+| Member | Behavior |
+|--------|----------|
+| `get_latest_frame()` | Polls the receiver, applies processors, notifies sinks, and returns the final value |
+| `get_latest_raw_frame()` | Polls the receiver without invoking processors or sinks |
+| `process_frame(frame)` | Sends an existing frame through the configured extension pipeline |
+| `get_receive_rate()` | Returns the receiver's current message rate |
+| `add_processor()` / `remove_processor()` | Adds or removes one processor |
+| `add_sink()` / `remove_sink()` | Adds or removes one sink |
+
+With no processors or sinks, `get_latest_frame()` returns exactly the raw frame
+obtained from `MocapReceiver`. If a processor fails, remaining processors and
+sinks are skipped for that frame. If a sink fails, remaining sinks still run.
+All extension exceptions are logged and sent to `on_extension_error`; they do
+not stop the receiver or raw recorder.
+
+## `MocapReceiver`
+
+```python
+MocapReceiver(port=11235, recorder=None, *, host="0.0.0.0")
+```
+
+Receives OSC messages on a background UDP thread and assembles chunked
+`/MOVIN/Frame` messages.
+
+`host` is the receiver computer's local bind address. Use `0.0.0.0` to accept
+packets on every local IPv4 interface or a specific local address such as
+`192.168.0.25` to restrict reception to that interface. This is not the MOVIN
+Studio sender address. Configure MOVIN Studio's destination to the receiver
+computer's reachable IP and the same UDP port.
+
+| Member | Behavior |
+|--------|----------|
+| `start()` | Resets buffers and starts the receiver thread |
+| `stop()` | Stops the thread, closes the socket, and resets buffers |
+| `get_latest_frame()` | Returns the newest complete frame or `None`; older queued frames are discarded |
+| `get_receive_rate()` | Returns the measured OSC packet rate in Hz |
+| `reset()` | Clears partial frames, ready frames, and rate state |
+| `recorder` | Recorder receiving every successfully parsed OSC message |
+
+The recorder is called before messages enter `MovinFrameAssembler`. Changing
+`receiver.recorder` is serialized with active `record()` calls.
+
+### Frame schema
 
 ```python
 {
-    "timestamp": str,        # Timestamp from mocap system
-    "actor": str,            # Actor name
-    "frame_idx": int,        # Frame index
-    "bones": [               # List of bone data
+    "timestamp": str,
+    "actor": str,
+    "frame_idx": int,
+    "bones": [
         {
             "bone_index": int,
             "parent_index": int,
             "bone_name": str,
-            "p": (px, py, pz),           # Local position
-            "rq": (w, x, y, z),          # Rest pose quaternion
-            "q": (w, x, y, z),           # Local rotation quaternion
-            "s": (sx, sy, sz),           # Scale
+            "p": (float, float, float),
+            "rq": (float, float, float, float),
+            "q": (float, float, float, float),
+            "s": (float, float, float),
         },
         ...
-    ]
+    ],
 }
 ```
 
-## Retargeter Class
+`p` is the local position; `rq` and `q` are rest and local rotation
+quaternions in `(w, x, y, z)` order; `s` is scale.
+
+## Recording and Playback
+
+Recordings store parsed OSC messages so replay passes through the same frame
+assembly path as live reception.
+
+### `OscRecorder`
 
 ```python
-Retargeter(
-    robot_type="unitree_g1",     # "unitree_g1" or "unitree_g1_with_hands"
-    human_height=1.75,           # Human height in meters
-    solver="daqp",               # IK solver
-    damping=0.5,                 # IK damping
-    verbose=False,               # Debug output
-    use_velocity_limit=True,     # Enable velocity limits (default)
-    source_preset="movinman",    # Source skeleton preset ("movinman" or "movinman_v3")
-)
+OscRecorder(output_path, stream_type="auto")
 ```
 
-`source_preset` selects the source skeleton layout: `"movinman"` (legacy 51-body MOVINMan) or `"movinman_v3"` (54-joint MOVINManV3, adding `Spine2`/`Spine3`/`Neck1` and full finger chains). It selects which IK config is loaded — `"movinman_v3"` maps the G1 torso from `Spine3` instead of `Spine1` — and the constructor raises `ValueError` for an unrecognized preset. See [Skeleton Presets](#skeleton-presets) below for auto-detecting the preset from bone names.
+| Member | Behavior |
+|--------|----------|
+| `record(address, args, wall_time=None)` | Appends one parsed OSC message and relative timestamp |
+| `save()` | Writes the versioned recording to `output_path` |
 
-**Methods:**
+`stream_type` accepts `"movin"`, `"nova"`, or `"auto"`. In auto mode the
+recorder detects the stream from OSC addresses and payload shape. `OscRecorder`
+is thread-safe and can also be used as a context manager that saves on exit.
 
-- `load_bvh(bvh_file, human_height=None)` - Load BVH file
-  - Returns: `(frames, human_height, parents, bones)`
-    - `frames`: list of frame data dictionaries
-    - `human_height`: human height in meters
-    - `parents`: numpy array of parent indices for skeleton hierarchy
-    - `bones`: list of bone names
-- `process_mocap_frame(bones)` - Process real-time mocap frame
-- `retarget(human_data, offset_to_ground=False)` - Retarget to robot
-- `get_required_bones()` - Get set of required bone names (depends on `source_preset`)
-- `set_ground_offset(offset)` - Set ground height offset
-
-## MujocoViewer Class
+### Recording file schema
 
 ```python
-MujocoViewer(
-    robot_type="unitree_g1",     # "unitree_g1" or "unitree_g1_with_hands"
-    motion_fps=60,               # Target FPS for rate limiting
-    camera_distance=3.0,         # Camera distance from robot
-    camera_elevation=-10.0,      # Camera elevation angle
-    show_left_ui=False,          # Show MuJoCo left UI panel
-    show_right_ui=False,         # Show MuJoCo right UI panel
-)
+{
+    "version": 1,
+    "stream_type": str,  # "movin", "nova", or "unknown"
+    "created": str,
+    "num_messages": int,
+    "duration_sec": float,
+    "messages": [
+        {
+            "t": float,
+            "addr": str,
+            "args": list,
+        },
+        ...
+    ],
+}
 ```
 
-Real-time optimized MuJoCo viewer for streaming mocap visualization. Designed for high-frequency updates (60+ Hz) with minimal latency.
-
-**Methods:**
-
-- `step(qpos, rate_limit=True, follow_camera=True)` - Update viewer with new robot state, returns `False` if viewer closed
-- `step_decomposed(root_pos, root_rot, dof_pos, ...)` - Alternative API with separate position/rotation/joints
-- `is_running()` - Check if viewer window is still open
-- `close()` - Close the viewer window
-
-## Utility Functions
-
-### load_bvh_file
+### `OscPlayer`
 
 ```python
-from movin_sdk_python import load_bvh_file
-
-frames, human_height, parents, bones = load_bvh_file(bvh_file, human_height=1.75)
+OscPlayer(recording_path)
 ```
 
-Load a BVH file and return frame data with skeleton hierarchy information.
+| Member | Behavior |
+|--------|----------|
+| `stream_type` | Recorded stream type |
+| `num_messages` | Number of recorded messages |
+| `duration_sec` | Recorded duration in seconds |
+| `messages(realtime=False)` | Yields `(address, args)`; optionally preserves original timing |
+| `messages_with_timing()` | Yields `(relative_time, address, args)` without sleeping |
 
-**Arguments:**
-- `bvh_file`: Path to BVH file
-- `human_height`: Assumed human height in meters (default: 1.75)
+Unsupported recording versions raise `ValueError` during construction.
 
-**Returns:**
-- `frames`: List of dictionaries with bone names as keys and `[position, orientation]` as values
-- `human_height`: Assumed human height in meters
-- `parents`: Numpy array of parent indices for each joint (skeleton hierarchy)
-- `bones`: List of bone names
-
-This function is similar to `BVHAnimation` from `read_bvh()` but returns processed frame data with coordinate transformations applied (Y-up to Z-up).
-
-### Skeleton Presets
+### `ReplayMocapReceiver`
 
 ```python
-from movin_sdk_python.utils.skeleton_presets import get_preset, detect_preset_from_bone_names
-
-preset = get_preset("movinman_v3")
-preset = detect_preset_from_bone_names(bone_names)
+ReplayMocapReceiver(recording_path, realtime=True, loop=True)
 ```
 
-`movin_sdk_python.utils.skeleton_presets` is the single source of truth for MOVINMan skeleton layouts. Two presets are defined:
+The replay receiver is a drop-in polling replacement for `MocapReceiver` and
+provides `start()`, `stop()`, `get_latest_frame()`, and `get_receive_rate()`.
 
-| Preset | Body count | Notes |
-|--------|------------|-------|
-| `movinman` | 51 (`MOVINMan.fbx`, legacy) | Has a mesh overlay asset (`movinman_mesh.npz`) |
-| `movinman_v3` | 54 (`MOVINManV3`) | Adds `Spine2`, `Spine3`, `Neck1`, and full finger chains; no mesh overlay asset |
+- `realtime=True` reproduces recorded message intervals.
+- `loop=True` restarts playback after the final message.
 
-**`SkeletonPreset`** (frozen dataclass):
-- `name`: preset identifier (`"movinman"` or `"movinman_v3"`)
-- `body_names`: DFS body order including the root `"Hips"`
-- `default_hips_height`: rest-pose hips height in meters (Z-up)
-- `mjcf_filename`: MJCF asset filename
-- `mesh_npz_filename`: LBS mesh asset filename, or `None` if the preset has no mesh overlay
-- `joint_bones` (property): `body_names` minus the root — the bones that each drive 3 DOFs
+### `peek_first_frame`
 
-**Functions:**
-- `get_preset(name)` - Look up a preset by name; raises `KeyError` if unknown
-- `detect_preset_from_bone_names(names)` - Return the V3 preset if any V3-only bone (`Spine3`, `Neck1`) is present in `names`, else the legacy preset
+```python
+frame = peek_first_frame(recording_path)
+```
 
-Several utilities in `isaac_lab_utils.py` and `movinman_mesh_utils.py` accept an optional bone-list parameter to target a non-default preset, defaulting to the legacy `movinman` layout: `extract_movin_local_quats_yup` / `extract_bvh_local_quats_yup` take `skeleton_body_names=` (full body list incl. `Hips`), `MOVINMeshModel(...)` takes `expected_bone_names=` (also a full body list incl. `Hips`), and `process_movin_bones_for_isaaclab` / `process_bvh_frame_for_isaaclab` / `build_dof_reorder_map` take `skeleton_bone_names=` (non-root list). `build_dof_reorder_map` raises `ValueError` if any expected joint is missing from the Isaac Lab articulation.
+Returns the first complete assembled frame or `None` without starting a replay
+thread.
 
-## Output Format
+## OSC and Frame Assembly
 
-The `retarget()` method returns a numpy array `qpos`:
+### `OscReader`
 
-- `qpos[:3]` - Root position (x, y, z) in meters
-- `qpos[3:7]` - Root orientation as quaternion (w, x, y, z)
-- `qpos[7:]` - Joint angles in radians
+```python
+reader = OscReader(packet_bytes)
+address, args = reader.read_message()
+```
+
+Parses one OSC message from a UDP packet.
+
+### `MovinFrameAssembler`
+
+```python
+MovinFrameAssembler(max_ready_frames=4, partial_ttl_sec=0.5)
+```
+
+| Member | Behavior |
+|--------|----------|
+| `ingest(address, args, now=None)` | Adds one parsed `/MOVIN/Frame` chunk |
+| `pop_latest_frame()` | Returns the newest complete frame and discards older ready frames |
+| `prune_stale(now=None)` | Removes incomplete frames older than `partial_ttl_sec` |
+
+## Extension Contracts
+
+The interfaces live in the core package so applications can create extensions
+without importing any optional implementation.
+
+```python
+class MyProcessor:
+    def process(self, frame):
+        return transformed_frame
+
+
+class MySink:
+    def on_frame(self, frame):
+        consume(frame)
+```
+
+`FrameProcessor` and `FrameSink` are runtime-checkable typing protocols for
+these method shapes. See [Optional Extensions](OPTIONAL_EXTENSIONS.md) for the
+built-in raw-frame `MocapViewer` sink, `Retargeter` processor, and robot-state
+`MujocoViewer` sink.
+
+## Optional Dependency Errors
+
+The root package resolves legacy optional exports lazily. Therefore this always
+works in a core-only environment:
+
+```python
+import movin_sdk_python
+```
+
+Using an unavailable optional symbol raises `MissingOptionalDependencyError`,
+an `ImportError` subclass whose message includes the required extra. Its public
+attributes are `feature`, `extra`, and `dependency`.

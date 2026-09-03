@@ -2,12 +2,14 @@
 """
 Example: Receive and print motion capture data via OSC protocol.
 
-This script demonstrates how to use the MocapReceiver class to receive
-mocap data from MOVIN STUDIO and print the received frame information.
+This script demonstrates the primary MovinSession workflow for receiving and
+optionally recording mocap data from MOVIN Studio.
 
 Usage:
     python receive_mocap.py --port 11235
+    python receive_mocap.py --host 192.168.0.25 --port 12000
     python receive_mocap.py --port 11235 --verbose
+    python receive_mocap.py --port 11235 --record session.pkl
 """
 
 import argparse
@@ -20,11 +22,19 @@ _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from movin_sdk_python import MocapReceiver
+from movin_sdk_python import MovinSession
 
 
 def main():
     parser = argparse.ArgumentParser(description="Receive and print mocap data via OSC")
+
+    parser.add_argument(
+        "--host",
+        "--ip",
+        dest="host",
+        default="0.0.0.0",
+        help="Local IPv4 address or hostname to bind (default: 0.0.0.0)",
+    )
     
     parser.add_argument(
         "--port",
@@ -46,28 +56,37 @@ def main():
         default=False,
         help="Print receive rate statistics",
     )
+
+    parser.add_argument(
+        "--record",
+        metavar="PATH",
+        help="Record the original OSC stream to PATH",
+    )
     
     args = parser.parse_args()
     
-    # Initialize the receiver
-    print(f"[Main] Initializing MocapReceiver on port {args.port}...")
-    receiver = MocapReceiver(port=args.port)
+    # Initialize the high-level receive/record session.
+    print(f"[Main] Initializing MovinSession on {args.host}:{args.port}...")
+    session = MovinSession(host=args.host, port=args.port)
     
-    # Start receiving
-    receiver.start()
+    if args.record:
+        session.start_recording(args.record)
+        print(f"[Main] Recording raw OSC messages to {args.record}")
+    # Start after the optional recorder is attached so the first packet is retained.
+    session.start()
     
     # Frame counter for rate display
     frame_count = 0
     fps_start_time = time.time()
     fps_display_interval = 2.0
     
-    print(f"[Main] Waiting for mocap data on port {args.port}...")
+    print(f"[Main] Waiting for mocap data on {args.host}:{args.port}...")
     print("[Main] Press Ctrl+C to stop")
     
     try:
         while True:
             # Get latest mocap frame
-            frame = receiver.get_latest_frame()
+            frame = session.get_latest_frame()
             
             if frame is None:
                 time.sleep(0.001)
@@ -98,7 +117,7 @@ def main():
                 current_time = time.time()
                 if current_time - fps_start_time >= fps_display_interval:
                     fps = frame_count / (current_time - fps_start_time)
-                    recv_rate = receiver.get_receive_rate()
+                    recv_rate = session.get_receive_rate()
                     print(f"[Main] Frame rate: {fps:.1f} fps, OSC receive rate: {recv_rate:.1f} Hz")
                     frame_count = 0
                     fps_start_time = current_time
@@ -106,7 +125,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[Main] Stopping...")
     finally:
-        receiver.stop()
+        session.stop()
         print("[Main] Done")
 
 

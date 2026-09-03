@@ -28,7 +28,7 @@ class MocapReceiver:
     4. Complete frames are stored in a queue for consumption
 
     Example usage:
-        receiver = MocapReceiver(port=11235)
+        receiver = MocapReceiver(host="0.0.0.0", port=11235)
         receiver.start()
 
         while running:
@@ -60,16 +60,26 @@ class MocapReceiver:
         }
     """
 
-    def __init__(self, port: int = 11235, recorder=None):
+    def __init__(
+        self,
+        port: int = 11235,
+        recorder=None,
+        *,
+        host: str = "0.0.0.0",
+    ):
         """
         Initialize the MocapReceiver.
 
         Args:
             port: UDP port to listen on (default: 11235)
             recorder: Optional OscRecorder instance to record incoming messages
+            host: Local IPv4 address or hostname to bind (default: 0.0.0.0,
+                meaning all local IPv4 interfaces)
         """
+        self.host = host
         self.port = port
-        self.recorder = recorder
+        self._recorder_lock = threading.RLock()
+        self._recorder = recorder
         self.thread = None
         self.sock = None
         self.running = False
@@ -81,6 +91,19 @@ class MocapReceiver:
         self.recv_count = 0
         self.last_rate_time = time.time()
         self.recv_rate_hz = 0.0
+
+    @property
+    def recorder(self):
+        """Recorder currently attached to the raw OSC stream."""
+        with self._recorder_lock:
+            return self._recorder
+
+    @recorder.setter
+    def recorder(self, recorder):
+        # Serializes recorder replacement with in-flight record() calls. This
+        # lets MovinSession safely detach a recorder before saving it.
+        with self._recorder_lock:
+            self._recorder = recorder
 
     def reset(self):
         """Reset all internal state and buffers."""
@@ -95,10 +118,31 @@ class MocapReceiver:
     def start(self):
         """Start the UDP server thread."""
         self.reset()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
+        except OSError:
+            pass
+
+        try:
+            sock.bind((self.host, self.port))
+            sock.settimeout(0.5)
+        except Exception:
+            sock.close()
+            self.running = False
+            self.sock = None
+            raise
+
+        self.sock = sock
         self.running = True
-        self.thread = threading.Thread(target=self._udp_server_loop, daemon=True)
+        self.thread = threading.Thread(
+            target=self._udp_server_loop,
+            args=(sock,),
+            daemon=True,
+        )
         self.thread.start()
-        print(f"[MocapReceiver] Listening on UDP port {self.port}")
+        bound_host, bound_port = sock.getsockname()[:2]
+        print(f"[MocapReceiver] Listening on UDP {bound_host}:{bound_port}")
 
     def stop(self):
         """Stop the UDP server thread."""
@@ -139,17 +183,8 @@ class MocapReceiver:
         """
         return self.recv_rate_hz
 
-    def _udp_server_loop(self):
+    def _udp_server_loop(self, sock):
         """Background thread that receives OSC packets and assembles frames."""
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
-        except OSError:
-            pass
-        sock.bind(("0.0.0.0", self.port))
-        sock.settimeout(0.5)
-        self.sock = sock
-
         try:
             while self.running:
                 try:
@@ -169,8 +204,9 @@ class MocapReceiver:
                     print(f"[MocapReceiver] OSC parse error: {e}")
                     continue
 
-                if self.recorder:
-                    self.recorder.record(address, args)
+                with self._recorder_lock:
+                    if self._recorder:
+                        self._recorder.record(address, args)
 
                 now = time.time()
                 with self.lock:
@@ -189,4 +225,5 @@ class MocapReceiver:
                 sock.close()
             except Exception:
                 pass
-            self.sock = None
+            if self.sock is sock:
+                self.sock = None

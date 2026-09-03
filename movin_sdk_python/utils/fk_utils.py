@@ -25,7 +25,7 @@ def compute_forward_kinematics(bones):
     1. Removes rest pose offset: q = quat_mul(quat_conj(rq), q)
     2. Applies Unity->OpenGL coordinate conversion
     3. Computes FK to get global transforms
-    4. Applies BVH-like axis conversion (90 deg around X)
+    4. Converts Y-up coordinates to Z-up (90 degrees around X)
     
     Args:
         bones: List of bone dicts with keys:
@@ -98,7 +98,7 @@ def compute_forward_kinematics(bones):
         
         global_transforms[idx] = (global_pos, global_rot)
     
-    # Step 3: Apply BVH-like axis conversion (90 deg around X for Y-up to Z-up)
+    # Step 3: Convert Y-up coordinates to Z-up (90 degrees around X)
     # Rotation matrix: [[1,0,0], [0,0,-1], [0,1,0]]
     # As quaternion (w,x,y,z): (cos(45°), sin(45°), 0, 0) = (0.7071, 0.7071, 0, 0)
     rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=np.float64)
@@ -126,7 +126,7 @@ def compute_forward_kinematics(bones):
 
 def add_foot_mod_bones(result):
     """
-    Add FootMod entries for optitrack format.
+    Add derived FootMod entries used by the legacy retargeting mapping.
     FootMod uses foot position with toe rotation.
     
     Args:

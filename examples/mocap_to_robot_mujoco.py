@@ -13,6 +13,7 @@ The data flow:
 
 Usage:
     python3 mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
+    python3 mocap_to_robot_mujoco.py --host 192.168.0.25 --port 12000 --robot unitree_g1
     python3 mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --print_fps --no_rate_limit
 
   On macOS, MuJoCo viewer requires mjpython (not python):
@@ -34,6 +35,14 @@ from movin_sdk_python import Retargeter, MocapReceiver, MujocoViewer
 
 def main():
     parser = argparse.ArgumentParser(description="Real-time mocap to robot with MuJoCo visualization")
+
+    parser.add_argument(
+        "--host",
+        "--ip",
+        dest="host",
+        default="0.0.0.0",
+        help="Local IPv4 address or hostname to bind (default: 0.0.0.0)",
+    )
     
     parser.add_argument(
         "--port",
@@ -54,6 +63,14 @@ def main():
         type=float,
         default=1.75,
         help="Human height in meters for scaling (default: 1.75)",
+    )
+
+    parser.add_argument(
+        "--source-preset",
+        "--source_preset",
+        choices=["movinman_v3", "movinman"],
+        default="movinman_v3",
+        help="Source skeleton preset (default: movinman_v3)",
     )
     
     parser.add_argument(
@@ -87,11 +104,15 @@ def main():
     args = parser.parse_args()
     
     # Initialize the retargeter
-    print(f"[Main] Initializing Retargeter for {args.robot}...")
+    print(
+        f"[Main] Initializing Retargeter for {args.robot} "
+        f"from {args.source_preset}..."
+    )
     retargeter = Retargeter(
         robot_type=args.robot,
         human_height=args.human_height,
         verbose=args.debug,
+        source_preset=args.source_preset,
     )
     
     # Get required bones for validation
@@ -105,7 +126,7 @@ def main():
     )
     
     # Start the mocap receiver
-    receiver = MocapReceiver(port=args.port)
+    receiver = MocapReceiver(host=args.host, port=args.port)
     receiver.start()
     
     # FPS measurement
@@ -116,7 +137,7 @@ def main():
     # Warning tracking
     warned_missing = 0
     
-    print(f"[Main] Waiting for mocap data on port {args.port}...")
+    print(f"[Main] Waiting for mocap data on {args.host}:{args.port}...")
     print("[Main] Close the viewer window or press Ctrl+C to stop")
     
     rate_limit = not args.no_rate_limit
