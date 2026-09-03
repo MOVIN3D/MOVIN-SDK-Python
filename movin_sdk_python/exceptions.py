@@ -1,5 +1,7 @@
 """Exceptions raised by the public MOVIN SDK API."""
 
+from __future__ import annotations
+
 
 class MissingOptionalDependencyError(ImportError):
     """An optional SDK feature was used without its dependencies installed."""
