@@ -8,7 +8,7 @@ Example usage:
     from mocap_receiver import MocapReceiver
     
     # Initialize receiver
-    receiver = MocapReceiver(port=11235)
+    receiver = MocapReceiver(host="0.0.0.0", port=11235)
     
     # Start receiving
     receiver.start()

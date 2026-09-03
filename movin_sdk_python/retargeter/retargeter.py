@@ -1,6 +1,4 @@
-"""
-Retargeter class for motion retargeting from optitrack mocap to Unitree robots.
-"""
+"""Retarget MOVIN skeleton motion to Unitree robots."""
 
 import pathlib
 import json
@@ -11,7 +9,6 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 from ..utils.quat_utils import quat_mul, rotate_vec_by_quat
-from ..utils.bvh_loader import load_bvh_file
 from ..utils.fk_utils import process_mocap_frame
 
 
@@ -26,26 +23,29 @@ ROBOT_XML_DICT = {
     "unitree_g1_with_hands": ASSETS_ROOT / "unitree_g1" / "g1_mocap_29dof_with_hands.xml",
 }
 
-# IK config paths (optitrack format only)
+# Backward-compatible default config lookup. Preset-aware code below is the
+# authoritative mapping and defaults to MOVINManV3.
 IK_CONFIG_DICT = {
-    "unitree_g1": IK_CONFIG_ROOT / "bvh_optitrack_to_g1.json",
-    "unitree_g1_with_hands": IK_CONFIG_ROOT / "bvh_optitrack_to_g1.json",
+    "unitree_g1": IK_CONFIG_ROOT / "movinman_v3_to_g1.json",
+    "unitree_g1_with_hands": IK_CONFIG_ROOT / "movinman_v3_to_g1.json",
 }
 
-# IK config paths keyed by (robot_type, source_preset). The legacy "movinman"
-# preset reuses the optitrack config above; "movinman_v3" swaps the torso
-# mapping from Spine1 to Spine3.
+# IK config paths keyed by (robot_type, source_preset). MOVINManV3 is the
+# default source skeleton. The legacy "movinman" preset remains available
+# explicitly with its own legacy mapping.
 IK_CONFIG_BY_PRESET = {
-    ("unitree_g1", "movinman"): IK_CONFIG_ROOT / "bvh_optitrack_to_g1.json",
-    ("unitree_g1_with_hands", "movinman"): IK_CONFIG_ROOT / "bvh_optitrack_to_g1.json",
-    ("unitree_g1", "movinman_v3"): IK_CONFIG_ROOT / "bvh_movin_v3_to_g1.json",
-    ("unitree_g1_with_hands", "movinman_v3"): IK_CONFIG_ROOT / "bvh_movin_v3_to_g1.json",
+    ("unitree_g1", "movinman"): IK_CONFIG_ROOT / "movinman_legacy_to_g1.json",
+    ("unitree_g1_with_hands", "movinman"): IK_CONFIG_ROOT / "movinman_legacy_to_g1.json",
+    ("unitree_g1", "movinman_v3"): IK_CONFIG_ROOT / "movinman_v3_to_g1.json",
+    ("unitree_g1_with_hands", "movinman_v3"): IK_CONFIG_ROOT / "movinman_v3_to_g1.json",
 }
+
+DEFAULT_SOURCE_PRESET = "movinman_v3"
 
 
 class Retargeter:
     """
-    Motion retargeter from optitrack mocap data to Unitree robots.
+    Motion retargeter from MOVIN mocap data to Unitree robots.
     
     Supports:
     - unitree_g1: Unitree G1 robot (29 DoF)
@@ -54,12 +54,7 @@ class Retargeter:
     Example usage:
         retargeter = Retargeter(robot_type="unitree_g1", human_height=1.75)
         
-        # From BVH file
-        frames, height = retargeter.load_bvh("motion.bvh")
-        for frame in frames:
-            qpos = retargeter.retarget(frame)
-            
-        # From real-time mocap
+        # From a live or replayed mocap frame
         mocap_data = retargeter.process_mocap_frame(bones)
         qpos = retargeter.retarget(mocap_data)
     """
@@ -72,7 +67,7 @@ class Retargeter:
         damping: float = 5e-1,
         verbose: bool = False,
         use_velocity_limit: bool = True,
-        source_preset: str = "movinman",
+        source_preset: str = DEFAULT_SOURCE_PRESET,
     ):
         """
         Initialize the retargeter.
@@ -84,8 +79,9 @@ class Retargeter:
             damping: IK damping factor
             verbose: Print debug information
             use_velocity_limit: Enable velocity limits in IK (3*pi rad/s per joint)
-            source_preset: Source skeleton preset ("movinman" or "movinman_v3").
-                Selects the IK config; "movinman_v3" maps the torso to Spine3.
+            source_preset: Source skeleton preset (default: "movinman_v3").
+                Use "movinman" for the legacy skeleton. MOVINManV3 maps the
+                torso to Spine3 instead of Spine1.
         """
         if robot_type not in ROBOT_XML_DICT:
             raise ValueError(f"Unknown robot type: {robot_type}. "
@@ -216,24 +212,6 @@ class Retargeter:
                 self.rot_offsets2[body_name] = R.from_quat(rot_offset, scalar_first=True)
                 self.tasks2.append(task)
 
-    def load_bvh(self, bvh_file, human_height=None):
-        """
-        Load a BVH file and return frame data.
-        
-        Args:
-            bvh_file: Path to BVH file
-            human_height: Override human height (optional)
-            
-        Returns:
-            Tuple of (frames, human_height, parents, bones) where:
-            - frames: list of dictionaries with bone names as keys
-            - human_height: assumed human height in meters
-            - parents: numpy array of parent indices for each joint
-            - bones: list of bone names
-        """
-        height = human_height if human_height is not None else 1.75
-        return load_bvh_file(bvh_file, human_height=height)
-
     def process_mocap_frame(self, bones):
         """
         Process real-time mocap frame from OSC data.
@@ -250,6 +228,16 @@ class Retargeter:
             Dict mapping bone_name to [position, rotation] suitable for retarget()
         """
         return process_mocap_frame(bones)
+
+    def process(self, frame):
+        """Process a receiver frame for use in a :class:`MovinSession` pipeline.
+
+        This is an additive adapter API; ``process_mocap_frame`` and ``retarget``
+        remain unchanged for existing integrations.
+        """
+        if not isinstance(frame, dict) or "bones" not in frame:
+            raise TypeError("Retargeter.process expects a receiver frame with 'bones'")
+        return self.retarget(self.process_mocap_frame(frame["bones"]))
 
     def retarget(self, human_data, offset_to_ground=False):
         """

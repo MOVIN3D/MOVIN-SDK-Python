@@ -113,7 +113,7 @@ def unity_to_opengl_quat(q):
     return np.array([q[0], q[1], -q[2], -q[3]])
 
 
-# Batch quaternion operations for BVH processing
+# Batch quaternion operations
 
 def quat_mul_batch(x, y):
     """
@@ -154,63 +154,37 @@ def quat_mul_vec_batch(q, x):
     return res
 
 
-def angle_axis_to_quat(angle, axis):
+def quat_fk(local_rotations, local_positions, parents):
     """
-    Converts from angle-axis representation to quaternion representation.
-    
+    Compute global joint transforms from local rotations and positions.
+
     Args:
-        angle: angles tensor
-        axis: axis tensor
-        
+        local_rotations: Quaternions shaped ``(..., joints, 4)`` in
+            ``(w, x, y, z)`` order.
+        local_positions: Positions shaped ``(..., joints, 3)``.
+        parents: Parent index for every joint. The root is the first joint.
+
     Returns:
-        quaternion tensor in (w, x, y, z) format
+        ``(global_rotations, global_positions)`` with the same leading shape.
     """
-    c = np.cos(angle / 2.0)[..., np.newaxis]
-    s = np.sin(angle / 2.0)[..., np.newaxis]
-    q = np.concatenate([c, s * axis], axis=-1)
-    return q
+    global_positions = [local_positions[..., :1, :]]
+    global_rotations = [local_rotations[..., :1, :]]
 
+    for index in range(1, len(parents)):
+        parent = parents[index]
+        global_positions.append(
+            quat_mul_vec_batch(
+                global_rotations[parent], local_positions[..., index:index + 1, :]
+            )
+            + global_positions[parent]
+        )
+        global_rotations.append(
+            quat_mul_batch(
+                global_rotations[parent], local_rotations[..., index:index + 1, :]
+            )
+        )
 
-def euler_to_quat(e, order='zyx'):
-    """
-    Converts from euler representation to quaternion representation.
-    
-    Args:
-        e: euler tensor (radians)
-        order: order of euler rotations
-        
-    Returns:
-        quaternion tensor in (w, x, y, z) format
-    """
-    axis = {
-        'x': np.asarray([1, 0, 0], dtype=np.float32),
-        'y': np.asarray([0, 1, 0], dtype=np.float32),
-        'z': np.asarray([0, 0, 1], dtype=np.float32)}
-
-    q0 = angle_axis_to_quat(e[..., 0], axis[order[0]])
-    q1 = angle_axis_to_quat(e[..., 1], axis[order[1]])
-    q2 = angle_axis_to_quat(e[..., 2], axis[order[2]])
-
-    return quat_mul_batch(q0, quat_mul_batch(q1, q2))
-
-
-def remove_quat_discontinuities(rotations):
-    """
-    Removing quaternion discontinuities on the time dimension (removing flips).
-    
-    Args:
-        rotations: Array of quaternions of shape (T, J, 4)
-        
-    Returns:
-        The processed array without quaternion inversion.
-    """
-    rots_inv = -rotations
-
-    for i in range(1, rotations.shape[0]):
-        # Compare dot products
-        replace_mask = np.sum(rotations[i - 1: i] * rotations[i: i + 1], axis=-1) < np.sum(
-            rotations[i - 1: i] * rots_inv[i: i + 1], axis=-1)
-        replace_mask = replace_mask[..., np.newaxis]
-        rotations[i] = replace_mask * rots_inv[i] + (1.0 - replace_mask) * rotations[i]
-
-    return rotations
+    return (
+        np.concatenate(global_rotations, axis=-2),
+        np.concatenate(global_positions, axis=-2),
+    )

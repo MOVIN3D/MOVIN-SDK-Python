@@ -1,7 +1,8 @@
 """
-Real-time optimized MuJoCo viewer for streaming mocap visualization.
+Real-time optimized MuJoCo viewer for retargeted robot states.
 
-This viewer is designed for high-frequency updates (60+ Hz) with minimal latency.
+This viewer consumes robot qpos arrays and is designed for high-frequency
+updates (60+ Hz) with minimal latency.
 """
 
 import pathlib
@@ -38,7 +39,7 @@ VIEWER_CAM_DISTANCE_DICT = {
 
 class MujocoViewer:
     """
-    Real-time optimized MuJoCo viewer for streaming mocap visualization.
+    Real-time optimized MuJoCo viewer for retargeted robot states.
     
     Designed for high-frequency updates (60+ Hz) with minimal latency.
     Pre-caches body IDs and uses direct array operations in the hot path.
@@ -206,6 +207,10 @@ class MujocoViewer:
     def is_running(self) -> bool:
         """Check if viewer window is still open."""
         return self.viewer.is_running()
+
+    def on_frame(self, frame):
+        """Display processor output when attached as a ``MovinSession`` sink."""
+        return self.step(frame)
     
     def close(self):
         """Close the viewer window."""

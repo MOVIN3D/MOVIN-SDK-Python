@@ -1,226 +1,303 @@
 # MOVIN SDK Python
 
-A Python SDK for receiving real-time motion capture data from MOVIN Studio.
+Receive and record real-time motion capture from MOVIN Studio.
 
-MOVIN Studio streams motion capture data over UDP using the OSC protocol. This SDK provides `MocapReceiver` as its core component for receiving and parsing that data. Robot retargeting (`Retargeter`), MuJoCo visualization (`MujocoViewer`), and Isaac Lab coordinate utilities are provided as optional applications built on top of it.
+MOVIN SDK Python is centered on one workflow: connect to MOVIN Studio over
+OSC/UDP, receive assembled mocap frames, and preserve the original stream for
+recording and replay. The default installation has no third-party runtime
+dependencies.
 
-## Features
+Robot retargeting, numerical motion utilities, and MuJoCo visualization are
+separate optional extensions. They are not installed or imported by the core
+SDK unless explicitly requested.
 
-- **Mocap reception**: receive and assemble `/MOVIN/Frame` OSC packets over UDP
-- **Recording & replay**: record live OSC streams to file and replay offline without MOVIN Studio
-- **Motion retargeting**: retarget human motion to Unitree G1 robots via IK, supporting both the legacy MOVINMan and MOVINManV3 skeleton presets
-- **Isaac Lab utilities**: coordinate conversion (Unity LH Y-up to Isaac RH Z-up) and MOVINMan mesh overlay via LBS
-- **MuJoCo viewer**: lightweight real-time viewer for retargeted robot motion
+## What Is Core and What Is Optional?
 
-## Installation
+```text
+Default installation
+
+MOVIN Studio ──OSC/UDP──> MocapReceiver ──> mocap frames
+                              │
+                              └──> OscRecorder ──> recording ──> replay
+
+Optional extensions
+
+mocap frame ────────────────────────────────> MocapViewer (stick figure)
+     │                                            [viewer]
+     └──> Retargeter ──> robot state ───────> MujocoViewer
+           [retargeting]                          [viewer]
+```
+
+| Area | Default install | Purpose |
+|------|:---------------:|---------|
+| `MovinSession`, `MocapReceiver` | Yes | Receive mocap frames from MOVIN Studio |
+| `OscRecorder`, `OscPlayer`, `ReplayMocapReceiver` | Yes | Record and replay the original OSC stream |
+| `Retargeter` and numeric motion utilities | No — `[retargeting]` | Convert human motion to robot joint states |
+| `MocapViewer`, `MujocoViewer` | No — `[viewer]` | Visualize raw mocap or robot states in MuJoCo |
+
+## Install the Core SDK
+
+From GitHub:
 
 ```bash
 pip install git+https://github.com/MOVIN3D/MOVIN-SDK-Python.git
 ```
 
-Or from a local checkout:
+From a local checkout:
 
 ```bash
 pip install -e /path/to/MOVIN-SDK-Python
 ```
 
-### Dependencies
+This installs only the receiver, recorder, and replay APIs. NumPy, SciPy,
+MuJoCo, Mink, and viewer dependencies are not part of the default installation.
 
-The core `MocapReceiver` only uses the Python standard library (`socket`, `threading`, `struct`).
+## Quick Start: Receive and Record
 
-Retargeting, visualization, and Isaac Lab utilities require:
-
-```
-numpy>=1.21.0
-scipy>=1.7.0
-mujoco>=3.0.0
-mink>=0.1.0
-loop-rate-limiters>=0.1.0
-```
-
-## Package Structure
-
-```
-MOVIN-SDK-Python/
-├── pyproject.toml
-├── examples/
-│   ├── receive_mocap.py            # Receive and print mocap data
-│   ├── mocap_to_robot.py           # Real-time mocap → robot retargeting (console)
-│   ├── mocap_to_robot_mujoco.py    # Real-time mocap → robot retargeting + MuJoCo viewer
-│   └── bvh_to_robot.py             # BVH file → robot retargeting
-└── movin_sdk_python/
-    ├── __init__.py
-    ├── mocap_receiver/              # Core: OSC/UDP reception
-    │   ├── mocap_receiver.py        # MocapReceiver class
-    │   ├── movin_frame_assembler.py # Chunked frame assembly logic
-    │   └── osc_reader.py            # OSC protocol parser
-    ├── recording/                   # Recording & replay
-    │   ├── osc_recorder.py          # OscRecorder — record OSC messages
-    │   ├── osc_player.py            # OscPlayer — play back recordings
-    │   ├── replay_receiver.py       # ReplayMocapReceiver — drop-in offline replacement
-    │   └── peek.py                  # peek_first_frame — read a recording's first frame
-    ├── retargeter/                  # Robot retargeting
-    │   ├── retargeter.py
-    │   ├── assets/                  # Robot models and meshes
-    │   └── ik_configs/              # IK configuration files
-    ├── viewer/                      # MuJoCo visualization
-    │   └── mujoco_viewer.py
-    └── utils/
-        ├── bvh_loader.py            # BVH file parsing
-        ├── fk_utils.py              # Forward kinematics, coordinate conversion
-        ├── quat_utils.py            # Quaternion math (wxyz format)
-        ├── skeleton_presets.py      # MOVINMan / MOVINManV3 skeleton preset definitions
-        ├── isaac_lab_utils.py       # MOVIN-to-Isaac Lab coordinate helpers
-        └── movinman_mesh_utils.py   # MOVINMan mesh model and LBS skinning
-```
-
-## Quick Start
-
-### Receiving Motion Capture Data
-
-Enable OSC output in MOVIN Studio, configure the IP and port, then:
+Enable OSC output in MOVIN Studio and configure it to send to the machine and
+port used below. `MovinSession` is the main high-level API.
 
 ```python
-from movin_sdk_python import MocapReceiver
 import time
 
-receiver = MocapReceiver(port=11235)
+from movin_sdk_python import MovinSession
+
+session = MovinSession(host="0.0.0.0", port=11235)
+session.start_recording("session.pkl")
+
+try:
+    with session:
+        while True:
+            frame = session.get_latest_frame()
+            if frame is None:
+                time.sleep(0.001)
+                continue
+
+            print(
+                f"frame={frame['frame_idx']} "
+                f"actor={frame['actor']} "
+                f"bones={len(frame['bones'])}"
+            )
+except KeyboardInterrupt:
+    pass
+```
+
+The context manager stops the receiver and saves the active recording. Raw OSC
+messages are recorded before any optional frame processing, so extension errors
+cannot corrupt the source recording.
+
+Run the included example:
+
+```bash
+python3 examples/receive_mocap.py --port 11235 --record session.pkl
+```
+
+The default bind address is `0.0.0.0:11235`. To listen only on another local
+interface and port, pass `--host` (or its `--ip` alias) and `--port`:
+
+```bash
+python3 examples/receive_mocap.py \
+    --host 192.168.0.25 \
+    --port 12000 \
+    --record session.pkl
+```
+
+Set MOVIN Studio's destination to `192.168.0.25:12000` in this example.
+`0.0.0.0` is a wildcard bind address and must not be used as the Studio
+destination.
+
+## Replay a Recording
+
+`ReplayMocapReceiver` follows the same polling API as `MocapReceiver`:
+
+```python
+import time
+
+from movin_sdk_python import ReplayMocapReceiver
+
+receiver = ReplayMocapReceiver(
+    "session.pkl",
+    realtime=True,
+    loop=True,
+)
 receiver.start()
 
 try:
     while True:
         frame = receiver.get_latest_frame()
-        if frame:
-            print(f"Frame {frame['frame_idx']}: actor={frame['actor']}, bones={len(frame['bones'])}")
-            for bone in frame['bones']:
-                print(f"  {bone['bone_name']}: pos={bone['p']}, rot={bone['q']}")
+        if frame is not None:
+            print(frame["frame_idx"])
         time.sleep(0.001)
 except KeyboardInterrupt:
+    pass
+finally:
     receiver.stop()
 ```
 
-### Recording & Replay
+Use `OscPlayer` for message-level iteration or `peek_first_frame()` when only
+the first assembled frame is needed.
+
+## Low-Level Receiver API
+
+Use `MocapReceiver` directly when session-level recording and extension
+management are unnecessary:
 
 ```python
-from movin_sdk_python.recording import OscRecorder, ReplayMocapReceiver
+import time
 
-# Record a live session
-recorder = OscRecorder("session.pkl")
-receiver = MocapReceiver(port=11235, recorder=recorder)
+from movin_sdk_python import MocapReceiver
+
+receiver = MocapReceiver(host="0.0.0.0", port=11235)
 receiver.start()
-# ... run your pipeline ...
-receiver.stop()
-recorder.save()
 
-# Replay offline (same API as MocapReceiver)
-replay = ReplayMocapReceiver("session.pkl", realtime=True, loop=True)
-replay.start()
-frame = replay.get_latest_frame()
-replay.stop()
+try:
+    while True:
+        frame = receiver.get_latest_frame()
+        if frame is not None:
+            print(frame["frame_idx"], frame["actor"])
+        time.sleep(0.001)
+finally:
+    receiver.stop()
 ```
 
-## Frame Data Format
+## Frame Format
 
-`get_latest_frame()` returns a dictionary:
+The core receiver returns one dictionary per complete MOVIN frame:
 
 ```python
 {
-    "timestamp": str,        # Timestamp from the mocap system
-    "actor": str,            # Actor name
-    "frame_idx": int,        # Frame index
+    "timestamp": str,
+    "actor": str,
+    "frame_idx": int,
     "bones": [
         {
             "bone_index": int,
             "parent_index": int,
             "bone_name": str,
-            "p": (px, py, pz),       # Local position
-            "rq": (w, x, y, z),      # Rest pose quaternion
-            "q": (w, x, y, z),       # Local rotation quaternion
-            "s": (sx, sy, sz),       # Scale
+            "p": (px, py, pz),       # local position
+            "rq": (w, x, y, z),      # rest-pose quaternion
+            "q": (w, x, y, z),       # local rotation quaternion
+            "s": (sx, sy, sz),       # scale
         },
         ...
-    ]
+    ],
 }
 ```
 
-> Quaternions are in `(w, x, y, z)` order. The SDK converts from `(x, y, z, w)` used by MOVIN Studio (Unity).
+Quaternions exposed by the SDK use `(w, x, y, z)` order. MOVIN Studio values
+arrive in `(x, y, z, w)` order and are converted during frame assembly.
 
-## API Reference
+## Core API
 
-### MocapReceiver
+| API | Role |
+|-----|------|
+| `MovinSession` | High-level receive, record, and extension lifecycle |
+| `MocapReceiver` | Background OSC/UDP receiver and frame assembler |
+| `MovinFrameAssembler` | Assemble chunked `/MOVIN/Frame` messages |
+| `OscReader` | Parse one OSC packet |
+| `OscRecorder` | Save parsed OSC messages to a recording |
+| `OscPlayer` | Iterate through recorded OSC messages |
+| `ReplayMocapReceiver` | Replay a recording through the receiver-style API |
+| `peek_first_frame` | Read the first assembled frame from a recording |
 
-```python
-receiver = MocapReceiver(port=11235, recorder=None)
-```
+See [Core API Reference](doc/API.md) for constructors, lifecycle behavior, and
+extension interfaces.
 
-| Method | Description |
-|--------|-------------|
-| `start()` | Start the background receiver thread |
-| `stop()` | Stop receiving and clean up resources |
-| `get_latest_frame()` | Return the most recent complete frame, or `None` |
-| `get_receive_rate()` | Get the current packet receive rate in Hz |
-| `reset()` | Reset all internal buffers |
+## Optional Extensions
 
-Pass an `OscRecorder` instance as `recorder` to record incoming OSC messages for later replay.
-
-### OscReader
-
-Parse raw OSC binary packets from MOVIN Studio directly:
-
-```python
-from movin_sdk_python import OscReader
-
-reader = OscReader(raw_bytes)
-address, args = reader.read_message()
-```
-
-### Recording & Replay
-
-| Class | Description |
-|-------|-------------|
-| `OscRecorder(path)` | Record OSC messages to a pickle file |
-| `OscPlayer(path)` | Load and iterate over recorded messages |
-| `ReplayMocapReceiver(path)` | Drop-in replacement for `MocapReceiver` using recorded data |
-
-`peek_first_frame(recording_path)` reads the first assembled frame from a recording (same shape as `get_latest_frame()`, or `None`) without starting a full `ReplayMocapReceiver` — handy for detecting the skeleton preset before replaying.
-
-## Example Scripts
+Optional features must be installed explicitly:
 
 ```bash
-# Receive and print mocap data
-python examples/receive_mocap.py --port 11235
-
-# Retarget live mocap to robot (console)
-python examples/mocap_to_robot.py --port 11235 --robot unitree_g1 --human_height 1.75
-
-# Retarget live mocap + MuJoCo viewer
-python examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
-
-# macOS: use mjpython instead of python
-mjpython examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1 --human_height 1.75
-
-# BVH file retargeting (auto-detects the source skeleton preset from the BVH)
-python examples/bvh_to_robot.py --bvh_file path/to/motion.bvh --human_height 1.75
+pip install -e ".[retargeting]"  # Retargeter plus numeric motion utilities
+pip install -e ".[viewer]"       # Raw stick-figure and robot-state viewers
+pip install -e ".[all]"          # Both optional feature sets
 ```
 
-## Retargeting
+For a Git installation with every extension:
 
-For detailed documentation see [API.md](doc/API.md).
+```bash
+pip install "movin_sdk_python[all] @ git+https://github.com/MOVIN3D/MOVIN-SDK-Python.git"
+```
 
-### Supported Robots
+Raw mocap can be viewed directly without Retargeter:
 
-| Robot Type | Description | DoFs |
-|------------|-------------|------|
-| `unitree_g1` | Unitree G1 (standard) | 29 |
-| `unitree_g1_with_hands` | Unitree G1 with hands | 43 |
+```python
+from movin_sdk_python import MocapViewer, MovinSession
 
-`Retargeter(..., source_preset="movinman")` selects the source skeleton layout — `"movinman"` (legacy) or `"movinman_v3"` (MOVINManV3) — which determines the IK config loaded and the bones `get_required_bones()` expects. Use `detect_preset_from_bone_names()` from `movin_sdk_python.utils.skeleton_presets` to auto-detect the preset from a BVH file's or recording's bone names, as `examples/bvh_to_robot.py` does.
+viewer = MocapViewer()
+with MovinSession(host="0.0.0.0", port=11235, sinks=[viewer]) as session:
+    while viewer.is_running():
+        session.get_latest_frame()
+```
 
-The `retarget()` method returns a numpy array `qpos`:
+Existing robot-viewer imports also remain supported after installing the
+relevant extra:
 
-- `qpos[:3]` -- Root position (x, y, z) in meters
-- `qpos[3:7]` -- Root orientation quaternion (w, x, y, z)
-- `qpos[7:]` -- Joint angles in radians
+```python
+from movin_sdk_python import MujocoViewer, Retargeter
+```
+
+`Retargeter` defaults to the MOVINManV3 skeleton. Legacy streams remain
+available with `Retargeter(source_preset="movinman")` or the live example
+option `--source-preset movinman`.
+
+Without the required extra, using an optional API raises
+`MissingOptionalDependencyError` with the appropriate installation command. A
+missing optional dependency never prevents `import movin_sdk_python` or any core
+receive/record/replay workflow.
+
+See [Optional Extensions](doc/OPTIONAL_EXTENSIONS.md) for retargeting, viewer,
+skeleton preset, and session pipeline documentation.
+
+## Examples
+
+Core example, available with the default installation:
+
+```bash
+python3 examples/receive_mocap.py --port 11235 --record session.pkl
+```
+
+The following examples require optional extras:
+
+```bash
+# Requires [viewer], but not Retargeter
+python3 examples/view_mocap.py --port 11235
+
+# Bind to one local interface and a custom port
+python3 examples/view_mocap.py --host 192.168.0.25 --port 12000
+
+# Requires [retargeting]
+python3 examples/mocap_to_robot.py --port 11235 --robot unitree_g1
+
+# Requires [all]
+python3 examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1
+```
+
+On macOS, MuJoCo GUI examples must be run with `mjpython`.
+
+## Package Layout
+
+```text
+movin_sdk_python/
+├── session.py           # Core: high-level receive and recording lifecycle
+├── mocap_receiver/      # Core: OSC parsing and frame assembly
+├── recording/           # Core: recording, playback, and replay receiver
+├── pipeline.py          # Core: optional-extension interfaces
+├── retargeter/          # Optional: robot retargeting implementation/assets
+├── viewer/              # Optional: raw mocap and robot-state MuJoCo viewers
+└── utils/               # Optional numeric utilities plus dependency-free presets
+```
+
+The dependency direction is one-way: optional modules may import core modules;
+core modules do not import Retargeter, Viewer, NumPy, SciPy, MuJoCo, or Mink.
+
+## Development
+
+Run the dependency-free test suite with:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## Acknowledgments
 
@@ -229,4 +306,4 @@ The `retarget()` method returns a numpy array `qpos`:
 
 ## License
 
-MIT License -- see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).

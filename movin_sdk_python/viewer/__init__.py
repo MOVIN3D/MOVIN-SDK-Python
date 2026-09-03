@@ -1,9 +1,18 @@
 """
 Viewer module for movin_sdk_python.
 
-Provides MujocoViewer for real-time visualization of retargeted robot motion.
+Provides MocapViewer for raw stick-figure visualization and MujocoViewer for
+retargeted robot motion.
 """
 
-from .mujoco_viewer import MujocoViewer
+from ..exceptions import MissingOptionalDependencyError
 
-__all__ = ["MujocoViewer"]
+try:
+    from .mocap_viewer import MocapViewer
+    from .mujoco_viewer import MujocoViewer
+except ModuleNotFoundError as exc:
+    if exc.name and exc.name.startswith("movin_sdk_python"):
+        raise
+    raise MissingOptionalDependencyError("MuJoCo viewer", "viewer", exc.name) from exc
+
+__all__ = ["MocapViewer", "MujocoViewer"]

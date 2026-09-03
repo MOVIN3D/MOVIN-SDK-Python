@@ -5,10 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "movin_sdk_python"
 version = "0.1.0"
-description = "Motion capture to robot retargeting SDK"
+description = "MOVIN Studio motion capture receiver and recording SDK"
 readme = "README.md"
+license = { text = "Apache-2.0" }
 requires-python = ">=3.8"
-dependencies = [
+dependencies = []
+
+[project.optional-dependencies]
+retargeting = [
+    "numpy>=1.21.0",
+    "scipy>=1.7.0",
+    "mujoco>=3.0.0",
+    "mink>=0.1.0",
+]
+viewer = [
+    "numpy>=1.21.0",
+    "mujoco>=3.0.0",
+    "loop-rate-limiters>=0.1.0",
+]
+all = [
     "numpy>=1.21.0",
     "scipy>=1.7.0",
     "mujoco>=3.0.0",

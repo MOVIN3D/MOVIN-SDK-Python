@@ -145,8 +145,8 @@ def process_movin_bones_for_isaaclab(
         bone_by_name[bone["bone_name"]] = bone
 
     # Process root (Root + Hips)
-    # MOVIN live stream sends 52 bones: "Root" (global transform) + "Hips" (local to Root).
-    # BVH files use "Hips" directly as root with global transform.
+    # MOVIN streams normally send "Root" (global transform) + "Hips"
+    # (local to Root), but some streams provide only a global "Hips" bone.
     # We combine Root + Hips into the MJCF freejoint (global position + rotation).
     movin_root = bone_by_name.get("Root")
     hips_bone = bone_by_name.get("Hips")
@@ -167,7 +167,7 @@ def process_movin_bones_for_isaaclab(
         root_pos_zup = yup_to_zup_vec(global_pos)
         root_quat_zup = yup_to_zup_quat(global_rot)
     else:
-        # Hips only (BVH-style, no separate Root bone)
+        # Hips only (no separate Root bone)
         p_rh, q_local = _convert_bone(hips_bone or movin_root)
         root_pos_zup = yup_to_zup_vec(p_rh)
         root_quat_zup = yup_to_zup_quat(q_local)
@@ -189,71 +189,6 @@ def process_movin_bones_for_isaaclab(
         _, q_local = _convert_bone(bone)
         q_zup = yup_to_zup_quat(q_local)
         dof_array[i * 3: i * 3 + 3] = quat_to_exp_map(q_zup)
-
-    return root_pos_zup, root_quat_zup, dof_array
-
-
-def process_bvh_frame_for_isaaclab(
-    quats,
-    positions,
-    bone_names,
-    skeleton_bone_names=None,
-    forward_mode="coord_equivalent",
-):
-    """Convert a single BVH frame to Isaac Lab DOF values.
-
-    BVH data is already in right-handed Y-up coordinates.
-
-    Args:
-        quats: (J, 4) local quaternions in (w,x,y,z) for this frame
-        positions: (J, 3) local positions for this frame (used for root only)
-        bone_names: List of BVH bone names
-        skeleton_bone_names: List of bone names matching MJCF joint order.
-            Defaults to SKELETON_JOINT_BONES.
-        forward_mode: Root-facing policy in Isaac visualization space.
-
-    Returns:
-        (root_pos_zup, root_quat_zup, dof_array)
-    """
-    if skeleton_bone_names is None:
-        skeleton_bone_names = SKELETON_JOINT_BONES
-
-    # Build BVH name -> index map
-    bvh_name_to_idx = {name: i for i, name in enumerate(bone_names)}
-
-    # Root (index 0 = Hips)
-    root_pos_yup = positions[0]
-    root_quat_yup = quats[0]
-
-    # Convert root position: BVH Y-up -> Z-up
-    # Note: BVH units vary by file (cm or m) - no scaling applied here
-    root_pos_zup = yup_to_zup_vec(root_pos_yup)
-
-    # Convert root quaternion
-    root_quat_zup = yup_to_zup_quat(root_quat_yup)
-    root_pos_zup, root_quat_zup = _apply_forward_mode_to_root(
-        root_pos_zup, root_quat_zup, forward_mode
-    )
-
-    # Process non-root joints
-    num_joints = len(skeleton_bone_names)
-    dof_array = np.zeros(num_joints * 3)
-
-    for i, bone_name in enumerate(skeleton_bone_names):
-        bvh_idx = bvh_name_to_idx.get(bone_name)
-        if bvh_idx is None:
-            # Missing bone in BVH -> identity (zero DOFs)
-            continue
-
-        q_local = quats[bvh_idx]
-
-        # BVH local rotations are already rest-pose-relative
-        # Convert Y-up -> Z-up
-        q_zup = yup_to_zup_quat(q_local)
-
-        # Quaternion -> exp map -> 3 DOF values
-        exp = quat_to_exp_map(q_zup)
-        dof_array[i * 3: i * 3 + 3] = exp
 
     return root_pos_zup, root_quat_zup, dof_array
 

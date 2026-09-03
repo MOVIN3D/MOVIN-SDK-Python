@@ -25,10 +25,10 @@ from .isaac_lab_utils import (
     SKELETON_BODY_NAMES,
     DEFAULT_HIPS_HEIGHT,
 )
-from .bvh_loader import quat_fk
 from .quat_utils import (
     quat_mul,
     quat_conj,
+    quat_fk,
     quat_normalize,
     unity_to_opengl_vec,
     unity_to_opengl_quat,
@@ -281,45 +281,5 @@ def extract_movin_local_quats_yup(bones, skeleton_body_names=None):
         q_rh = unity_to_opengl_quat(np.array(bone["q"], dtype=np.float64))
         rq_rh = unity_to_opengl_quat(np.array(bone["rq"], dtype=np.float64))
         local_quats[i] = quat_normalize(quat_mul(quat_conj(rq_rh), q_rh))
-
-    return local_quats, root_pos_yup
-
-
-def extract_bvh_local_quats_yup(quats, positions, bone_names, skeleton_body_names=None):
-    """Extract (B, 4) local quaternions + (3,) root pos from a BVH frame.
-
-    BVH data is already in right-handed Y-up coordinates.
-
-    Args:
-        quats: (J, 4) local quaternions in (w, x, y, z) for this frame.
-        positions: (J, 3) local positions for this frame.
-        bone_names: List of BVH bone names (J entries).
-        skeleton_body_names: DFS body order incl. root "Hips".
-            Defaults to the legacy SKELETON_BODY_NAMES.
-
-    Returns:
-        (local_quats_yup, root_pos_yup) where:
-            local_quats_yup: (B, 4) wxyz quaternions
-                (B = len(skeleton_body_names))
-            root_pos_yup: (3,) Y-up meters (NOTE: caller must apply bvh_scale)
-    """
-    if skeleton_body_names is None:
-        skeleton_body_names = SKELETON_BODY_NAMES
-
-    bvh_name_to_idx = {name: i for i, name in enumerate(bone_names)}
-
-    local_quats = np.zeros((len(skeleton_body_names), 4), dtype=np.float64)
-    local_quats[:, 0] = 1.0  # identity default
-
-    # Root position and rotation from BVH Hips (index 0)
-    root_pos_yup = np.array(positions[0], dtype=np.float64)
-    local_quats[0] = quats[0]
-
-    # Non-root bones
-    for i, name in enumerate(skeleton_body_names[1:], start=1):
-        bvh_idx = bvh_name_to_idx.get(name)
-        if bvh_idx is None:
-            continue
-        local_quats[i] = quats[bvh_idx]
 
     return local_quats, root_pos_yup
