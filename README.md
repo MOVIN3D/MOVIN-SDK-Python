@@ -174,9 +174,9 @@ The core receiver returns one dictionary per complete MOVIN frame:
             "bone_index": int,
             "parent_index": int,
             "bone_name": str,
-            "p": (px, py, pz),       # local position
-            "rq": (w, x, y, z),      # rest-pose quaternion
-            "q": (w, x, y, z),       # local rotation quaternion
+            "p": (px, py, pz),       # local position (offset in the parent's frame)
+            "rq": (w, x, y, z),      # rest-pose quaternion (informational; "q" already includes it)
+            "q": (w, x, y, z),       # full local rotation quaternion
             "s": (sx, sy, sz),       # scale
         },
         ...

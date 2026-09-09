@@ -99,13 +99,21 @@ def _apply_forward_mode_to_root(root_pos_zup, root_quat_zup, forward_mode):
 def _convert_bone(bone):
     """Convert a MOVIN bone dict from Unity to right-handed coords.
 
-    Returns (pos_rh, q_local) where q_local has rest-pose removed.
+    Returns ``(pos_rh, q_rh)``: the streamed local position and local rotation
+    in right-handed Y-up.  ``q`` is used as-is.  MOVIN Studio streams ``p`` as
+    the joint offset in the parent's frame and ``q`` as the full local rotation
+    (rest rotation included), which is exactly the frame the MJCF skeletons are
+    built in (generated from the local-rotation-identity T-pose), so no
+    rest-pose removal is applied.  The streamed rest quaternion ``rq`` is
+    informational.  Streams from the earlier MOVINManV3 rig carry non-identity
+    ``rq`` on the finger bones (Thumb1 ~60 deg); removing it there
+    (``conj(rq) * q``) would leave the fingers straightened in the T-pose.  The
+    identity-local rig (``MOVINman_V3_local_rotation_identity.fbx``) streams
+    identity ``rq``, where removal is a no-op.
     """
     p_rh = unity_to_opengl_vec(np.array(bone["p"], dtype=np.float64))
-    q_rh = unity_to_opengl_quat(np.array(bone["q"], dtype=np.float64))
-    rq_rh = unity_to_opengl_quat(np.array(bone["rq"], dtype=np.float64))
-    q_local = quat_normalize(quat_mul(quat_conj(rq_rh), q_rh))
-    return p_rh, q_local
+    q_rh = quat_normalize(unity_to_opengl_quat(np.array(bone["q"], dtype=np.float64)))
+    return p_rh, q_rh
 
 
 def find_stream_root_bone(bones):
@@ -135,8 +143,8 @@ def hips_global_transform_rh(bones):
     itself the root.
 
     Returns:
-        ``(pos_rh, q_rh)`` with the rest pose removed from the rotation, or
-        None when the frame has neither a ``Hips`` bone nor a root bone.
+        ``(pos_rh, q_rh)`` in right-handed Y-up, or None when the frame has
+        neither a ``Hips`` bone nor a root bone.
         Without a ``Hips`` bone the stream root's own transform is returned.
     """
     by_index = {b["bone_index"]: b for b in bones if "bone_index" in b}
@@ -175,10 +183,13 @@ def process_movin_bones_for_isaaclab(
 
     Pipeline per bone:
         1. Unity->right-handed: quat (w,x,-y,-z), pos (-x,y,z)
-        2. Remove rest pose: q = conj(rq) * q
-        3. Y-up -> Z-up similarity transform on quaternion
-        4. Root: extract position + rotation
-        5. Non-root: quaternion -> exp_map -> 3 DOF values
+        2. Y-up -> Z-up similarity transform on quaternion
+        3. Root: extract position + rotation
+        4. Non-root: quaternion -> exp_map -> 3 DOF values
+
+    The streamed local rotation ``q`` drives the hinges directly (no rest-pose
+    removal): the MJCF skeletons place every body at the parent-local offset of
+    MOVIN's local-rotation-identity T-pose, the frame ``q`` is expressed in.
 
     Args:
         bones: List of bone dicts from MocapReceiver (same format as fk_utils expects)

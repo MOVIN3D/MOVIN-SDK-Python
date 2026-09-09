@@ -149,6 +149,15 @@ The recorder is called before messages enter `MovinFrameAssembler`. Changing
 `p` is the local position; `rq` and `q` are rest and local rotation
 quaternions in `(w, x, y, z)` order; `s` is scale.
 
+`p` is the joint's offset in its parent's frame and `q` is the full local
+rotation, rest rotation included (streams from the earlier MOVINManV3 rig carry
+non-identity rest quaternions on the finger bones, e.g. `Thumb1` about 60
+degrees; the identity-local rig streams identity `rq`).  The SDK's
+forward kinematics, mesh, and Isaac Lab helpers apply `q` directly and never
+remove `rq`; the skeleton assets they drive are built from a T-pose whose local
+rotations are all identity, so their body frames coincide with the frames `q`
+is expressed in.
+
 ## Recording and Playback
 
 Recordings store parsed OSC messages so replay passes through the same frame

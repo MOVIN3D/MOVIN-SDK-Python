@@ -298,6 +298,13 @@ detected = detect_preset_from_bone_names(bone_names)
 | `movinman` | 51 | Legacy MOVINMan layout; includes a mesh-overlay asset |
 | `movinman_v3` | 54 | Adds `Spine2`, `Spine3`, `Neck1`, and full finger chains |
 
+`body_names` lists bodies in the DFS order of the preset's MJCF asset.  For
+`movinman_v3` that is the order of MOVIN Studio's V3 live stream and BVH
+exports, with fingers running Thumb, Index, Middle, Ring, Pinky within each
+hand.  Both MJCFs are generated from a T-pose whose local rotations are all
+identity (`MOVINman_V3_local_rotation_identity_tpose.bvh` for V3), so streamed
+local rotations drive them directly without rest-pose removal.
+
 `source_preset` chooses the IK mapping used by `Retargeter`. The default V3
 mapping targets `Spine3` for the G1 torso rather than the legacy `Spine1`
 mapping.

@@ -9,6 +9,14 @@ Two presets are supported:
     - movinman     : 51-body legacy skeleton (MOVINMan.fbx)
     - movinman_v3  : 54-joint skeleton (MOVINManV3) adding Spine2/Spine3/Neck1
 
+Rest-pose convention (both presets): the MJCF assets place every body at the
+joint's offset in its parent's local frame, as read from a T-pose whose local
+rotations are all identity (for V3: ``MOVINman_V3_local_rotation_identity_tpose.bvh``,
+the rest pose of ``MOVINman_V3_local_rotation_identity.fbx``).  That is the
+frame MOVIN Studio streams ``p`` / ``q`` in and the OFFSET frame of its BVH
+exports, so the streamed local rotation drives the hinges directly; the streamed
+rest quaternion ``rq`` is not removed (see isaac_lab_utils._convert_bone).
+
 This module must NOT import isaac_lab_utils (or any other utils module that
 imports it) so it can stay the base of the dependency graph.  isaac_lab_utils
 re-exports the legacy constants FROM here.
@@ -38,24 +46,29 @@ MOVINMAN_BODY_NAMES = (
     "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase",
 )
 
-# DFS body order of the MOVINManV3 skeleton. Adds Spine2/Spine3/Neck1 vs
-# legacy; Neck and both shoulders are parented under Spine3.
+# DFS body order of the MOVINManV3 skeleton (matches data/movinman_v3_skeleton.xml,
+# which is generated from MOVINman_V3_local_rotation_identity_tpose.bvh, as well
+# as the bone order of MOVIN Studio's V3 live stream and BVH exports).  Adds
+# Spine2/Spine3/Neck1 vs legacy; Neck and both shoulders are parented under
+# Spine3; fingers run Thumb, Index, Middle, Ring, Pinky within each hand.  (The
+# FBX file lists fingers alphabetically -- Index, Middle, Pinky, Ring, Thumb --
+# but no runtime path depends on that order; everything is looked up by name.)
 MOVINMAN_V3_BODY_NAMES = (
     "Hips",
     "Spine", "Spine1", "Spine2", "Spine3",
     "Neck", "Neck1", "Head",
     "RightShoulder", "RightArm", "RightForeArm", "RightHand",
+    "RightHandThumb1", "RightHandThumb2", "RightHandThumb3",
     "RightHandIndex1", "RightHandIndex2", "RightHandIndex3",
     "RightHandMiddle1", "RightHandMiddle2", "RightHandMiddle3",
-    "RightHandPinky1", "RightHandPinky2", "RightHandPinky3",
     "RightHandRing1", "RightHandRing2", "RightHandRing3",
-    "RightHandThumb1", "RightHandThumb2", "RightHandThumb3",
+    "RightHandPinky1", "RightHandPinky2", "RightHandPinky3",
     "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
+    "LeftHandThumb1", "LeftHandThumb2", "LeftHandThumb3",
     "LeftHandIndex1", "LeftHandIndex2", "LeftHandIndex3",
     "LeftHandMiddle1", "LeftHandMiddle2", "LeftHandMiddle3",
-    "LeftHandPinky1", "LeftHandPinky2", "LeftHandPinky3",
     "LeftHandRing1", "LeftHandRing2", "LeftHandRing3",
-    "LeftHandThumb1", "LeftHandThumb2", "LeftHandThumb3",
+    "LeftHandPinky1", "LeftHandPinky2", "LeftHandPinky3",
     "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase",
     "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase",
 )

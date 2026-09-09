@@ -9,7 +9,6 @@ import numpy as np
 
 from .quat_utils import (
     quat_mul,
-    quat_conj,
     quat_normalize,
     rotate_vec_by_quat,
     unity_to_opengl_vec,
@@ -22,10 +21,14 @@ def compute_forward_kinematics(bones):
     Compute global transforms from local bone data using forward kinematics.
     
     This function:
-    1. Removes rest pose offset: q = quat_mul(quat_conj(rq), q)
-    2. Applies Unity->OpenGL coordinate conversion
-    3. Computes FK to get global transforms
-    4. Converts Y-up coordinates to Z-up (90 degrees around X)
+    1. Applies Unity->OpenGL coordinate conversion
+    2. Computes FK from the streamed local transforms: ``p`` is the joint
+       offset in the parent's frame and ``q`` the full local rotation (rest
+       rotation included), so ``rq`` is not applied -- removing it would
+       misplace the fingers of streams from the earlier MOVINManV3 rig, whose
+       rest quaternions are not identity (the identity-local rig streams
+       identity ``rq``, where removal would be a no-op)
+    3. Converts Y-up coordinates to Z-up (90 degrees around X)
     
     Args:
         bones: List of bone dicts with keys:
@@ -34,7 +37,7 @@ def compute_forward_kinematics(bones):
             - bone_name: str
             - p: (px, py, pz) local position in Unity coords
             - q: (w, x, y, z) local rotation quaternion
-            - rq: (w, x, y, z) rest pose quaternion
+            - rq: (w, x, y, z) rest pose quaternion (not used)
             - s: (sx, sy, sz) scale (not used)
         
     Returns:
@@ -48,7 +51,7 @@ def compute_forward_kinematics(bones):
     # Sort bones by index to process parents first
     sorted_bones = sorted(bones, key=lambda b: b["bone_index"])
     
-    # Compute local transforms with rest pose removal and coordinate conversion
+    # Compute local transforms with coordinate conversion
     local_transforms = {}  # bone_index -> (local_pos, local_rot)
     
     for bone in sorted_bones:
@@ -56,21 +59,13 @@ def compute_forward_kinematics(bones):
         
         # Get raw values
         p_unity = bone["p"]
-        q_unity = bone["q"]   # (w, x, y, z)
-        rq_unity = bone["rq"]  # rest pose (w, x, y, z)
+        q_unity = bone["q"]   # (w, x, y, z), full local rotation
         
         # Step 1: Apply Unity->OpenGL coordinate conversion
         p_opengl = unity_to_opengl_vec(p_unity)
-        rq_opengl = unity_to_opengl_quat(rq_unity)
-        q_opengl = unity_to_opengl_quat(q_unity)
+        q_opengl = quat_normalize(unity_to_opengl_quat(q_unity))
         
-        # Step 2: Remove rest pose offset
-        # q_final = rq_inv * q
-        rq_inv = quat_conj(rq_opengl)
-        q_final = quat_mul(rq_inv, q_opengl)
-        q_final = quat_normalize(q_final)
-        
-        local_transforms[idx] = (p_opengl, q_final)
+        local_transforms[idx] = (p_opengl, q_opengl)
     
     # Compute FK (global transforms)
     global_transforms = {}  # bone_index -> (global_pos, global_rot)

@@ -27,8 +27,6 @@ from .isaac_lab_utils import (
     hips_global_transform_rh,
 )
 from .quat_utils import (
-    quat_mul,
-    quat_conj,
     quat_fk,
     quat_normalize,
     unity_to_opengl_quat,
@@ -161,8 +159,10 @@ class MOVINMeshModel:
 
         Args:
             local_quats_yup: (B, 4) wxyz quaternions in Y-up skeleton space,
-                where B is the mesh bone count.  These are delta rotations
-                relative to the bind/rest pose.
+                where B is the mesh bone count.  Each is the bone's rotation
+                relative to its parent's frame; the NPZ rig's bind pose has
+                identity local rotations, so these are also the deltas from
+                the bind pose.
             root_pos_yup: (3,) root position in Y-up meters.
             forward_mode: "coord_equivalent" or "isaac_world".
 
@@ -222,7 +222,13 @@ def extract_movin_local_quats_yup(bones, skeleton_body_names=None):
     """Extract (B, 4) local quaternions + (3,) root pos from live OSC bones.
 
     The MOVIN live stream sends bones in Unity left-handed Y-up coords.
-    This function converts to right-handed Y-up (rest-pose-removed).
+    This function converts to right-handed Y-up.  The streamed local rotation
+    ``q`` is used as-is (no rest-pose removal), matching isaac_lab_utils: the
+    legacy MOVINMan rig streams identity ``rq`` so this is unchanged for the
+    bundled mesh asset, and a MOVINManV3 mesh asset must be extracted with
+    parent-local bone offsets (identity local rotations in the bind pose, as
+    in ``MOVINman_V3_local_rotation_identity.fbx``) to be driven by these
+    quaternions.
 
     Args:
         bones: List of bone dicts from MocapReceiver with keys
@@ -232,7 +238,7 @@ def extract_movin_local_quats_yup(bones, skeleton_body_names=None):
 
     Returns:
         (local_quats_yup, root_pos_yup) where:
-            local_quats_yup: (B, 4) wxyz quaternions, rest-pose-removed
+            local_quats_yup: (B, 4) wxyz local quaternions
                 (B = len(skeleton_body_names))
             root_pos_yup: (3,) Y-up meters
     """
@@ -258,7 +264,6 @@ def extract_movin_local_quats_yup(bones, skeleton_body_names=None):
         if bone is None:
             continue
         q_rh = unity_to_opengl_quat(np.array(bone["q"], dtype=np.float64))
-        rq_rh = unity_to_opengl_quat(np.array(bone["rq"], dtype=np.float64))
-        local_quats[i] = quat_normalize(quat_mul(quat_conj(rq_rh), q_rh))
+        local_quats[i] = quat_normalize(q_rh)
 
     return local_quats, root_pos_yup
