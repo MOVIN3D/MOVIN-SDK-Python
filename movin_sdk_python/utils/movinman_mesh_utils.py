@@ -1,9 +1,11 @@
 """
 MOVIN mesh model and Linear Blend Skinning (LBS) utilities.
 
-Loads the pre-extracted MOVINMan mesh NPZ and implements forward kinematics +
-LBS to produce posed vertices for the Isaac Lab mesh overlay.  Pure NumPy —
-no PyTorch dependency.
+Loads a pre-extracted MOVIN character mesh NPZ (``movinman_mesh.npz`` for the
+legacy MOVINMan rig, ``movinman_v3_mesh.npz`` for MOVINManV3, both produced by
+MOVIN-Isaac-Plugin's ``scripts/extract_movinman_mesh.py``) and implements
+forward kinematics + LBS to produce posed vertices for the Isaac Lab mesh
+overlay.  Pure NumPy — no PyTorch dependency.
 
 Coordinate systems:
     Geometry space (NPZ vertices):  centimeters, Z-up
@@ -111,8 +113,8 @@ class MOVINMeshModel:
             expected_bone_names = SKELETON_BODY_NAMES
         if not os.path.exists(npz_path):
             raise FileNotFoundError(
-                f"Mesh NPZ not found: {npz_path}. "
-                "Run scripts/extract_movinman_mesh.py first."
+                f"Mesh NPZ not found: {npz_path}. Extract it with "
+                "MOVIN-Isaac-Plugin's scripts/extract_movinman_mesh.py (runs in Blender)."
             )
 
         data = np.load(npz_path, allow_pickle=False)
@@ -225,10 +227,9 @@ def extract_movin_local_quats_yup(bones, skeleton_body_names=None):
     This function converts to right-handed Y-up.  The streamed local rotation
     ``q`` is used as-is (no rest-pose removal), matching isaac_lab_utils: the
     legacy MOVINMan rig streams identity ``rq`` so this is unchanged for the
-    bundled mesh asset, and a MOVINManV3 mesh asset must be extracted with
-    parent-local bone offsets (identity local rotations in the bind pose, as
-    in ``MOVINman_V3_local_rotation_identity.fbx``) to be driven by these
-    quaternions.
+    legacy mesh asset, and the MOVINManV3 asset (``movinman_v3_mesh.npz``) is
+    extracted from ``MOVINman_V3_local_rotation_identity.fbx``, whose bind pose
+    has identity local rotations, so the same quaternions drive it.
 
     Args:
         bones: List of bone dicts from MocapReceiver with keys

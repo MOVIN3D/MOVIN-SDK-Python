@@ -7,7 +7,8 @@ hips height, and the associated MJCF / mesh asset filenames.
 
 Two presets are supported:
     - movinman     : 51-body legacy skeleton (MOVINMan.fbx)
-    - movinman_v3  : 54-joint skeleton (MOVINManV3) adding Spine2/Spine3/Neck1
+    - movinman_v3  : 54-joint skeleton (MOVINman_V3_local_rotation_identity.fbx)
+                     adding Spine2/Spine3/Neck1
 
 Rest-pose convention (both presets): the MJCF assets place every body at the
 joint's offset in its parent's local frame, as read from a T-pose whose local
@@ -116,7 +117,7 @@ MOVINMAN_V3_PRESET = SkeletonPreset(
     body_names=MOVINMAN_V3_BODY_NAMES,
     default_hips_height=0.8906,
     mjcf_filename="movinman_v3_skeleton.xml",
-    mesh_npz_filename=None,
+    mesh_npz_filename="movinman_v3_mesh.npz",
 )
 
 PRESETS = {

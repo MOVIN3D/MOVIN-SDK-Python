@@ -296,7 +296,7 @@ detected = detect_preset_from_bone_names(bone_names)
 | Preset | Body count | Notes |
 |--------|-----------:|-------|
 | `movinman` | 51 | Legacy MOVINMan layout; includes a mesh-overlay asset |
-| `movinman_v3` | 54 | Adds `Spine2`, `Spine3`, `Neck1`, and full finger chains |
+| `movinman_v3` | 54 | Adds `Spine2`, `Spine3`, `Neck1`, and full finger chains; mesh-overlay asset `movinman_v3_mesh.npz` |
 
 `body_names` lists bodies in the DFS order of the preset's MJCF asset.  For
 `movinman_v3` that is the order of MOVIN Studio's V3 live stream and BVH
