@@ -103,8 +103,13 @@ python3 examples/receive_mocap.py \
 ```
 
 Set MOVIN Studio's destination to `192.168.0.25:12000` in this example.
-`0.0.0.0` is a wildcard bind address and must not be used as the Studio
-destination.
+
+`0.0.0.0` is the receiver's wildcard *bind* address, not a destination. When
+MOVIN Studio runs on the same computer as the receiver, enter `127.0.0.1` as
+the destination (on Linux, Studio's default `0.0.0.0` also reaches the local
+receiver, because the kernel delivers packets sent to `0.0.0.0` to the local
+host). When Studio runs on another computer, enter the receiver computer's
+real IP address; `0.0.0.0` is not routable and never reaches another machine.
 
 ## Replay a Recording
 
