@@ -78,16 +78,15 @@ class Retargeter:
 
         Args:
             robot_type: Robot type ("unitree_g1" or "unitree_g1_with_hands")
-            human_height: How human positions are sized to the robot.
-                "auto" (default): normalize the actor to the reference body
-                the IK tables were tuned for, using the T-pose leg height of
-                the streamed bones (``body_scale``); recomputed whenever the
-                streamed proportions change.  A number turns this off and
-                applies the fixed scale of earlier releases,
-                ``scale_table * human_height / 1.8``.  Note that this legacy
-                factor grows with the value, so it does not normalize by the
-                actor's real height; pass the number you used before to keep
-                earlier results.
+            human_height: The actor's size, used to normalize the actor to
+                the reference body the IK tables were tuned for.
+                "auto" (default): measured from the streamed bones (T-pose
+                leg height relative to the reference skeleton) and recomputed
+                whenever the streamed proportions change.
+                A number: the actor's standing height in meters; targets are
+                scaled by ``reference_height / human_height`` with the IK
+                config's reference height (1.8 m).
+                The applied ratio is ``body_scale``.
             solver: IK solver type ("daqp" or "quadprog")
             damping: IK damping factor
             verbose: Print debug information
@@ -150,18 +149,18 @@ class Retargeter:
         with open(ik_config_path) as f:
             ik_config = json.load(f)
         
-        # Scale ratio: 1.0 (the reference body) until "auto" sees a frame, or
-        # the legacy fixed ratio for a numeric human_height.
+        # Body scale = reference body size / actor size.  "auto" starts at the
+        # reference body (1.0) and measures the actor from the first frame; a
+        # numeric human_height is the actor's real height.
         self.human_height = human_height
         self._base_scale_table = dict(ik_config["human_scale_table"])
         self._body_scale_key = None
         self._warned_body_scale = False
         if human_height == AUTO_HUMAN_HEIGHT:
             ratio = 1.0
-            self.body_scale = 1.0
         else:
-            ratio = float(human_height) / ik_config["human_height_assumption"]
-            self.body_scale = None
+            ratio = ik_config["human_height_assumption"] / float(human_height)
+        self.body_scale = ratio
 
         # Adjust the human scale table
         for key in ik_config["human_scale_table"].keys():

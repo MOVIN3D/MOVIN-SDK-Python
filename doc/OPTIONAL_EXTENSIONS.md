@@ -130,23 +130,23 @@ Retargeter(
 
 ### Body size (`human_height`)
 
-The IK tables were tuned for the preset's reference body. By default
-(`human_height="auto"`), the retargeter normalizes each actor to that body.
-The size ratio comes from the T-pose leg height of the streamed bones, and it
-is recomputed whenever MOVIN Studio streams new proportions.
-`retargeter.body_scale` reports the ratio. It is greater than 1 when the actor
-is smaller than the reference body. Until the first
-`process_mocap_frame()` call, and for a stream without complete leg chains,
-the retargeter uses the reference body (ratio 1.0).
+The IK tables were tuned for the preset's reference body, which is 1.8 m
+tall. The retargeter normalizes each actor to that body by multiplying the
+human positions by `body_scale` = reference size / actor size. The ratio is
+greater than 1 for an actor smaller than the reference body.
 
-To turn this off, pass a number. That applies the fixed scale of earlier
-releases, `scale_table × human_height / 1.8`, and leaves `body_scale` as
-`None`. Pass the value you used before (the old default was `1.75`) to
-reproduce earlier results.
+- `human_height="auto"` (default): the actor's size is measured from the
+  T-pose leg height of the streamed bones and remeasured whenever MOVIN Studio
+  streams new proportions. Until the first `process_mocap_frame()` call, and
+  for a stream without complete leg chains, the reference body is used
+  (ratio 1.0).
+- `human_height=<meters>`: the actor's standing height, for example `1.66`.
+  This turns measurement off; `body_scale` is `1.8 / human_height`.
 
-This legacy factor grows with the value. It therefore does not normalize by
-the actor's real height, and entering a smaller actor's real height makes the
-targets smaller still.
+Earlier releases multiplied the scale by `human_height / 1.8`, so a smaller
+value shrank the targets instead of enlarging them. To reproduce a result
+retargeted with `human_height=h` by such a release, pass `3.24 / h`
+(`1.8² / h`; for the old default `1.75`, that is `3.24 / 1.75 ≈ 1.8514`).
 
 ### Supported robot models
 
@@ -164,7 +164,7 @@ targets smaller still.
 | `process(frame)` | Processes and retargets one complete receiver frame for `MovinSession` |
 | `get_required_bones()` | Returns bones required by the active source preset |
 | `set_ground_offset(offset)` | Sets the ground-height offset |
-| `human_height` / `body_scale` | `"auto"` or the fixed value; the current size ratio in auto mode (else `None`) |
+| `human_height` / `body_scale` | `"auto"` or the actor's height in meters; the applied size ratio (reference body / actor) |
 
 `process(frame)` is an additive adapter for the core `FrameProcessor` contract.
 The existing `process_mocap_frame()` and `retarget()` workflow remains supported.
@@ -376,7 +376,7 @@ streamed, so they keep the reference values.
 | Component | Default | Turn off |
 |-----------|---------|----------|
 | `MocapViewer` stick figure | Always the streamed body (drawn from the streamed offsets) | — |
-| `Retargeter` | `human_height="auto"`: targets sized to the streamed body | `human_height=<number>` (e.g. `1.75`) or `--human_height 1.75` |
+| `Retargeter` | `human_height="auto"`: actor size measured from the stream | `human_height=<actor's height in m>` (e.g. `1.66`) or `--human_height 1.66` |
 | `MOVINMeshModel.pose_from_bones()` | `fit=True`: mesh fitted to the streamed body | `fit=False`, `reset_fit()`, or the low-level `pose_vertices()` |
 | MJCF skeleton | Opt-in: the SDK does not build a scene; call `fit_skeleton_mjcf()` where the scene is built | Load `preset.mjcf_path` unchanged |
 

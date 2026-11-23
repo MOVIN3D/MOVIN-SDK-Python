@@ -12,7 +12,7 @@ The data flow:
 
 Usage:
     python mocap_to_robot.py --port 11235 --robot unitree_g1                       # body size from the stream
-    python mocap_to_robot.py --port 11235 --robot unitree_g1 --human_height 1.75  # fixed legacy scale
+    python mocap_to_robot.py --port 11235 --robot unitree_g1 --human_height 1.66  # actor's height (m)
     python mocap_to_robot.py --host 192.168.0.25 --port 12000 --robot unitree_g1
 """
 
@@ -68,8 +68,8 @@ def main():
         "--human_height",
         type=human_height_arg,
         default="auto",
-        help="'auto' (default): size the robot targets from the streamed body; "
-             "a number uses the fixed legacy scale (e.g. 1.75 for earlier results)",
+        help="'auto' (default): measure the actor from the streamed bones; "
+             "or the actor's standing height in meters (e.g. 1.66)",
     )
 
     parser.add_argument(
@@ -157,7 +157,7 @@ def main():
             
             # Retarget
             qpos = retargeter.retarget(mocap_data)
-            if not reported_scale and retargeter.body_scale is not None:
+            if not reported_scale:
                 print(f"[Main] Body scale to reference: {retargeter.body_scale:.3f}")
                 reported_scale = True
             

@@ -311,11 +311,18 @@ class RetargeterBodyScaleTests(unittest.TestCase):
         self.assertAlmostEqual(retargeter.body_scale, 1.0)
         self.assert_table(retargeter, 1.0)
 
-    def test_a_number_turns_auto_off_and_keeps_the_legacy_scale(self):
-        retargeter = self.Retargeter("unitree_g1", human_height=1.75)
+    def test_a_number_is_the_actors_height_and_turns_auto_off(self):
+        retargeter = self.Retargeter("unitree_g1", human_height=1.6)
         retargeter.process_mocap_frame(synth_bones(self.preset, {n: 0.8 for n in LEG_BONES}))
-        self.assertIsNone(retargeter.body_scale)
-        self.assert_table(retargeter, 1.75 / 1.8)
+        # A shorter actor than the 1.8 m reference gets larger targets; the
+        # streamed body no longer changes the scale.
+        self.assertAlmostEqual(retargeter.body_scale, 1.8 / 1.6)
+        self.assert_table(retargeter, 1.8 / 1.6)
+
+    def test_reference_height_is_the_reference_body(self):
+        retargeter = self.Retargeter("unitree_g1", human_height=1.8)
+        self.assertAlmostEqual(retargeter.body_scale, 1.0)
+        self.assert_table(retargeter, 1.0)
 
     def test_invalid_heights_are_rejected(self):
         for value in ("tall", 0, -1.7):

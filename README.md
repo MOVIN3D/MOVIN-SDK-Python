@@ -280,7 +280,7 @@ the package (`movin_sdk_python/assets`; `preset.mjcf_path`,
 | Component | Default | Turn off |
 |-----------|---------|----------|
 | `MocapViewer` stick figure | Always the streamed body | — |
-| `Retargeter` | `human_height="auto"` sizes the targets from the streamed body (`body_scale`) | `human_height=1.75` (any number: fixed legacy scale), or `--human_height 1.75` in the examples |
+| `Retargeter` | `human_height="auto"` measures the actor from the stream (`body_scale`) | `human_height=<actor's height in m>` (e.g. `1.66`), or `--human_height 1.66` in the examples |
 | `MOVINMeshModel.pose_from_bones()` | `fit=True` fits the mesh to the streamed body | `fit=False` or `reset_fit()` |
 | MJCF skeleton | Opt-in, because the scene is built by your application: call `fit_skeleton_mjcf()` | Load `preset.mjcf_path` unchanged |
 
@@ -305,10 +305,11 @@ with open("actor.xml", "w") as f:  # MJCF for MuJoCo / Isaac Lab
 The fitted mesh and MJCF reproduce the stream's joint positions exactly and
 keep the feet on the ground.
 
-Numeric `human_height` values keep the scale formula of earlier releases
-(`scale_table × human_height / 1.8`), which grows with the value. It is
-therefore not the actor's real height. See
-[Body size](doc/OPTIONAL_EXTENSIONS.md#body-size-human_height) and
+A numeric `human_height` is the actor's standing height in meters. The
+targets are then scaled by `1.8 / human_height`, where 1.8 m is the height
+the IK tables were tuned for. Earlier releases scaled by `human_height / 1.8`.
+To reproduce their results, see
+[Body size](doc/OPTIONAL_EXTENSIONS.md#body-size-human_height). See also
 [Fitting Assets](doc/OPTIONAL_EXTENSIONS.md#fitting-assets-to-the-actors-body-proportions).
 
 ## Examples
@@ -331,7 +332,7 @@ python3 examples/view_mocap.py --host 192.168.0.25 --port 12000
 
 # Requires [retargeting]; prints the body scale once, then FPS
 python3 examples/mocap_to_robot.py --port 11235 --robot unitree_g1 --print_fps
-python3 examples/mocap_to_robot.py --port 11235 --human_height 1.75   # fixed legacy scale
+python3 examples/mocap_to_robot.py --port 11235 --human_height 1.66   # actor's height (m) instead of auto
 
 # Requires [all]
 python3 examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1_with_hands
