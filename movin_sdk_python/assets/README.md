@@ -13,7 +13,10 @@ nothing is read from another repository at runtime.
 | `movinman_mesh.npz` | `movinman` | LBS mesh (38,334 vertices) |
 | `movinman_v3_mesh.npz` | `movinman_v3` | LBS mesh (44,402 vertices), extracted from `MOVINman_V3_local_rotation_identity.fbx` |
 
-All four assets use the reference T-pose proportions.
+All four assets use the reference T-pose proportions. To match an actor's
+calibrated proportions as streamed by MOVIN Studio, use
+`movin_sdk_python.utils.skeleton_fitting.fit_skeleton_mjcf()` for the MJCF and
+`MOVINMeshModel.fit_to_bones()` (or `pose_from_bones()`) for the mesh.
 
 ## Provenance
 

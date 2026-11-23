@@ -7,6 +7,11 @@ legacy MOVINMan rig, ``movinman_v3_mesh.npz`` for MOVINManV3; both ship in
 forward kinematics + LBS to produce posed vertices for the Isaac Lab mesh
 overlay.  Pure NumPy — no PyTorch dependency.
 
+The NPZ carries the reference character's proportions.  ``fit_to_bones`` (or
+``pose_from_bones``, which refits whenever the streamed proportions change)
+rebinds the mesh to the actor's streamed bone offsets so the posed mesh
+follows the stream's joints exactly.
+
 Coordinate systems:
     Geometry space (NPZ vertices):  centimeters, Z-up
     Skeleton space (bone offsets):  meters, Y-up
@@ -33,10 +38,16 @@ from .quat_utils import (
     quat_normalize,
     unity_to_opengl_quat,
 )
+from .skeleton_fitting import fitted_offsets
 from .skeleton_presets import MOVINMAN_PRESET, SkeletonPreset, get_preset
 
 # Packaged legacy mesh, matching the legacy default ``expected_bone_names``.
 _DEFAULT_NPZ_PATH = Path(MOVINMAN_PRESET.mesh_npz_path)
+
+# Fitting: per-bone stretch is regularized toward identity (relative to the
+# squared child-offset lengths) and its singular values clamped to this range.
+_FIT_REGULARIZATION = 1e-3
+_FIT_SCALE_RANGE = (0.5, 2.0)
 
 _ROT_Z_90 = np.array(
     [
@@ -139,6 +150,19 @@ class MOVINMeshModel:
         self._bind_verts_homo = np.ones((V, 4), dtype=np.float64)
         self._bind_verts_homo[:, :3] = self._vertices
 
+        # Reference (unfitted) bind data, restored by reset_fit().
+        self._parent_names = [None] + [
+            self._bone_names[p] for p in self._bone_parents[1:]
+        ]
+        self._reference = (
+            self._vertices,
+            self._bind_verts_homo,
+            self._inverse_bind_matrices,
+            self._bone_offsets,
+        )
+        self._fit_key = None
+        self._fitted_bones = ()
+
     @classmethod
     def from_preset(cls, preset="movinman_v3"):
         """Load the packaged mesh of a skeleton preset (name or SkeletonPreset)."""
@@ -151,6 +175,127 @@ class MOVINMeshModel:
     @property
     def bone_names(self):
         return list(self._bone_names)
+
+    @property
+    def is_fitted(self) -> bool:
+        """Whether the mesh is currently rebound to streamed proportions."""
+        return bool(self._fitted_bones)
+
+    @property
+    def fitted_bones(self):
+        """Bones whose offsets came from the stream in the current fit."""
+        return self._fitted_bones
+
+    def reset_fit(self):
+        """Return to the reference character's proportions."""
+        (
+            self._vertices,
+            self._bind_verts_homo,
+            self._inverse_bind_matrices,
+            self._bone_offsets,
+        ) = self._reference
+        self._fit_key = None
+        self._fitted_bones = ()
+
+    def fit_to_bones(self, bones):
+        """Rebind the mesh to the bone offsets of a streamed frame.
+
+        Every bone takes the streamed parent-local offset (bones missing from
+        the stream keep the reference one), so posing reproduces the stream's
+        joint positions.  Vertices move with their bones into the actor's
+        T-pose: each bone's region is stretched along its child bones by the
+        streamed / reference length ratio and kept as thick as the reference
+        across them (leaf bones -- head, finger tips, toes -- are only moved).
+        The root is placed so the T-pose's lowest joint keeps the reference
+        ground clearance.
+
+        Args:
+            bones: ``frame["bones"]`` from a MOVIN receiver.
+
+        Returns:
+            self
+
+        Raises:
+            ValueError: If the stream's hierarchy does not match the mesh, or
+                the mesh's bind pose has rotated bones (fitting assumes the
+                identity-local T-pose both packaged meshes are bound in).
+        """
+        _, _, ref_ibm, ref_offsets = self._reference
+        offsets, fitted = fitted_offsets(
+            bones, self._bone_names, self._parent_names, [tuple(o) for o in ref_offsets]
+        )
+        if not fitted:
+            self.reset_fit()
+            return self
+
+        geom_to_skel = ref_ibm[0, :3, :3]
+        if not np.allclose(ref_ibm[:, :3, :3], geom_to_skel, atol=1e-6):
+            raise ValueError("Mesh bind pose has rotated bones; cannot fit proportions")
+        parents = np.asarray(self._bone_parents)
+        ref_joints = -ref_ibm[:, :3, 3]                      # bind joints, Y-up m
+        ref_local = ref_joints[1:] - ref_joints[parents[1:]]
+        if not np.allclose(ref_local, ref_offsets[1:], atol=1e-4):
+            raise ValueError("Mesh bind joints disagree with its bone offsets")
+
+        new_offsets = np.asarray(offsets, dtype=np.float64)
+        new_offsets[0] = 0.0
+        joints = np.zeros_like(ref_joints)
+        for i in range(1, len(joints)):
+            joints[i] = joints[parents[i]] + new_offsets[i]
+        root = ref_joints[0].copy()
+        root[1] = ref_joints[:, 1].min() - joints[:, 1].min()
+        joints += root
+        new_offsets[0] = root
+
+        stretch = _bone_stretch(parents, ref_offsets, new_offsets)
+
+        # Bind vertices -> skeleton space -> actor T-pose (blended per influence).
+        ref_vertices = self._reference[0].astype(np.float64)
+        verts_skel = ref_vertices @ geom_to_skel.T
+        bi, wv = self._weight_bone_indices, self._weight_values.astype(np.float64)
+        moved = np.zeros_like(verts_skel)
+        for k in range(bi.shape[1]):
+            j = bi[:, k]
+            local = verts_skel - ref_joints[j]
+            moved += wv[:, k:k + 1] * (joints[j] + np.einsum("vab,vb->va", stretch[j], local))
+        moved /= np.maximum(wv.sum(axis=1, keepdims=True), 1e-12)
+        vertices = moved @ np.linalg.inv(geom_to_skel).T
+
+        ibm = ref_ibm.copy()
+        ibm[:, :3, 3] = -joints
+        self._vertices = vertices.astype(np.float32)
+        self._bind_verts_homo = np.ones((len(vertices), 4), dtype=np.float64)
+        self._bind_verts_homo[:, :3] = vertices
+        self._inverse_bind_matrices = ibm
+        self._bone_offsets = new_offsets
+        self._fitted_bones = tuple(fitted)
+        return self
+
+    def pose_from_bones(self, bones, forward_mode: str = "coord_equivalent", fit: bool = True):
+        """Pose the mesh from a streamed frame's bones.
+
+        Args:
+            bones: ``frame["bones"]`` from a MOVIN receiver.
+            forward_mode: "coord_equivalent" or "isaac_world".
+            fit: Fit the actor's streamed proportions first.  The fit is
+                redone only when the streamed offsets change (e.g. the actor is
+                recalibrated in MOVIN Studio).
+
+        Returns:
+            (V, 3) float32 vertices in Isaac Z-up world space.
+        """
+        if fit:
+            names = set(self._bone_names[1:])
+            key = tuple(
+                (b["bone_name"], tuple(b["p"])) for b in bones if b["bone_name"] in names
+            )
+            if key != self._fit_key:
+                self.fit_to_bones(bones)
+                self._fit_key = key
+        local_quats, root_pos = extract_movin_local_quats_yup(
+            bones, skeleton_body_names=self._bone_names
+        )
+        return self.pose_vertices(local_quats, root_pos, forward_mode=forward_mode)
 
     @property
     def faces(self) -> np.ndarray:
@@ -231,6 +376,31 @@ class MOVINMeshModel:
 
         # 7. Convert Y-up → Z-up + optional forward mode
         return convert_movin_vertices_to_isaac(deformed_yup, forward_mode=forward_mode)
+
+
+def _bone_stretch(parents, ref_offsets, new_offsets):
+    """(B, 3, 3) per-bone linear maps taking reference bone-local geometry to the actor's.
+
+    For a bone with children, the map sends each reference child offset to the
+    actor's (regularized least squares), leaving directions the children do
+    not span untouched -- a limb gets longer or shorter but not thicker.  Leaf
+    bones get the identity.
+    """
+    count = len(parents)
+    stretch = np.tile(np.eye(3), (count, 1, 1))
+    for j in range(count):
+        kids = [c for c in range(1, count) if parents[c] == j]
+        if not kids:
+            continue
+        ref = np.asarray(ref_offsets, dtype=np.float64)[kids]
+        new = np.asarray(new_offsets, dtype=np.float64)[kids]
+        lam = _FIT_REGULARIZATION * float((ref * ref).sum()) + 1e-12
+        m = ref.T @ ref + lam * np.eye(3)
+        n = new.T @ ref + lam * np.eye(3)
+        a = n @ np.linalg.inv(m)
+        u, sv, vt = np.linalg.svd(a)
+        stretch[j] = u @ np.diag(np.clip(sv, *_FIT_SCALE_RANGE)) @ vt
+    return stretch
 
 
 def extract_movin_local_quats_yup(bones, skeleton_body_names=None):

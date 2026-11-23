@@ -256,6 +256,11 @@ Without the required extra, using an optional API raises
 missing optional dependency never prevents `import movin_sdk_python` or any core
 receive/record/replay workflow.
 
+The MOVINMan MJCF skeletons and LBS meshes for the skeleton presets ship with
+the package. They can be fitted to the actor's calibrated proportions from the
+stream, so the overlay's joints match the stream exactly. See
+[Fitting Assets to the Actor's Body Proportions](doc/OPTIONAL_EXTENSIONS.md#fitting-assets-to-the-actors-body-proportions).
+
 See [Optional Extensions](doc/OPTIONAL_EXTENSIONS.md) for retargeting, viewer,
 skeleton preset, and session pipeline documentation.
 

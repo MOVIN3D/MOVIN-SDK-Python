@@ -5,7 +5,8 @@ A preset bundles everything name-keyed code needs to drive an articulation for
 a given MOVINMan skeleton: the DFS body order (root "Hips" first), the default
 hips height, and the associated MJCF / mesh assets.  The assets ship inside the
 package (``movin_sdk_python/assets``); ``mjcf_path`` / ``mesh_npz_path`` resolve
-them.  They carry the reference T-pose proportions.
+them.  They carry the reference T-pose proportions -- see ``skeleton_fitting``
+to fit them to an actor's streamed proportions.
 
 Two presets are supported:
     - movinman     : 51-body legacy skeleton (MOVINMan.fbx)

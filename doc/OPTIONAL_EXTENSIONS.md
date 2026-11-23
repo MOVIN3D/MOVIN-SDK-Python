@@ -314,6 +314,43 @@ local rotations drive them directly without rest-pose removal.
 mapping targets `Spine3` for the G1 torso rather than the legacy `Spine1`
 mapping.
 
+## Fitting Assets to the Actor's Body Proportions
+
+The packaged assets have the reference character's proportions. MOVIN Studio
+calibrates each actor and streams that actor's bone offsets. A reference asset
+driven by streamed rotations therefore misplaces joints and can leave the feet
+above or below the floor. Fitting gives the asset the streamed offsets, so its
+joints match the stream's own forward kinematics exactly:
+
+```python
+from movin_sdk_python.utils.movinman_mesh_utils import MOVINMeshModel
+from movin_sdk_python.utils.skeleton_fitting import fit_skeleton_mjcf
+
+frame = ...  # first frame from MocapReceiver / ReplayMocapReceiver / peek_first_frame
+
+# MJCF skeleton (dependency-free): write it out before building the scene.
+with open("movinman_v3_actor.xml", "w") as f:
+    f.write(fit_skeleton_mjcf(frame["bones"], "movinman_v3"))
+
+# Mesh overlay (NumPy): refits whenever the streamed proportions change.
+mesh = MOVINMeshModel.from_preset("movinman_v3")
+vertices = mesh.pose_from_bones(frame["bones"])  # (V, 3) Isaac Z-up meters
+```
+
+| API | Behavior |
+|-----|----------|
+| `fit_skeleton_mjcf(bones, preset="movinman_v3", mjcf_path=None, model_name=None)` | Returns the MJCF with streamed body offsets, a root height that keeps the T-pose on the ground, and capsules stretched to the new bone lengths |
+| `MOVINMeshModel.from_preset(preset)` | Loads a preset's packaged mesh |
+| `MOVINMeshModel.fit_to_bones(bones)` | Rebinds the mesh to the streamed offsets; limbs get longer or shorter, not thicker |
+| `MOVINMeshModel.pose_from_bones(bones, forward_mode="coord_equivalent", fit=True)` | Poses the mesh from a frame and refits only when the streamed offsets change |
+| `MOVINMeshModel.reset_fit()` / `is_fitted` | Returns to the reference proportions or reports the current state |
+
+Each fitted body must hang under the same parent as in the asset. Otherwise
+fitting raises `ValueError`, for example when a V3 stream is fitted to the
+legacy preset. Bones absent from the stream keep their reference offsets.
+Geom sizes, leaf spheres (head, fingertips), and foot boxes are not
+streamed, so they keep the reference values.
+
 ## Isaac Lab Helpers
 
 Isaac Lab conversion and MOVINMan mesh helpers are optional application
