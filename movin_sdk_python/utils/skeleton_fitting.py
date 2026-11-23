@@ -14,6 +14,8 @@ T-pose frames); only lengths differ.
 
 This module is dependency-free.  The mesh counterpart is
 ``MOVINMeshModel.fit_to_bones`` in ``movinman_mesh_utils`` (needs NumPy).
+``body_scale_to_reference`` gives the overall size ratio the Retargeter uses
+to normalize an actor to the reference body its IK tables were tuned for.
 
 Coordinates: the stream is Unity left-handed Y-up; offsets returned here are
 right-handed Y-up meters ``(-px, py, pz)``, and MJCF bodies are Z-up
@@ -23,11 +25,19 @@ MJCF generator.
 
 from __future__ import annotations
 
+import functools
 import math
 import xml.etree.ElementTree as ET
 
 from .skeleton_presets import SkeletonPreset, get_preset
 
+
+# Leg chains below Hips; identical in the legacy and V3 skeletons.
+LEG_CHAINS = (
+    ("LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase"),
+    ("RightUpLeg", "RightLeg", "RightFoot", "RightToeBase"),
+)
+LEG_BONES = frozenset(name for chain in LEG_CHAINS for name in chain)
 
 # A capsule follows a child body when it points at it within this angle.
 _CAPSULE_CHILD_MAX_DEG = 2.0
@@ -114,6 +124,63 @@ def hips_height(body_names, parent_names, offsets):
         height[i] = height[index[parent_names[i]]] + offsets[i][1]
         lowest = min(lowest, height[i])
     return round(max(0.0, -lowest), 4)
+
+
+def leg_height(offsets):
+    """T-pose height of the hips above the lowest leg joint.
+
+    Args:
+        offsets: ``{bone_name: (parent_name, (x, y, z))}`` right-handed Y-up,
+            as returned by ``stream_offsets``.
+
+    Returns:
+        The height in meters, or None if a leg chain is missing or hangs
+        under unexpected parents.
+    """
+    lowest = 0.0
+    for chain in LEG_CHAINS:
+        height = 0.0
+        parent = "Hips"
+        for name in chain:
+            entry = offsets.get(name)
+            if entry is None or entry[0] != parent:
+                return None
+            height += entry[1][1]
+            lowest = min(lowest, height)
+            parent = name
+    return -lowest if lowest < 0.0 else None
+
+
+@functools.lru_cache(maxsize=None)
+def _reference_offsets(mjcf_path):
+    root = ET.parse(mjcf_path).getroot()
+    return {
+        body.get("name"): (parent, _zup_to_yup(_parse_vec(body.get("pos", "0 0 0"))))
+        for body, parent in _mjcf_bodies(root)
+    }
+
+
+def body_scale_to_reference(bones, preset="movinman_v3"):
+    """How much larger the preset's reference body is than the streamed actor.
+
+    The ratio of T-pose leg heights (hips above the lowest leg joint) of the
+    packaged reference skeleton and of the stream.  Multiplying the actor's
+    positions by it normalizes the actor to the reference body.
+
+    Args:
+        bones: Streamed bones of one frame (``frame["bones"]``).
+        preset: Preset name or SkeletonPreset providing the reference body.
+
+    Returns:
+        The ratio, or None if the stream lacks a complete leg chain.
+    """
+    if not isinstance(preset, SkeletonPreset):
+        preset = get_preset(preset)
+    actor = leg_height(stream_offsets(bones))
+    reference = leg_height(_reference_offsets(preset.mjcf_path))
+    if actor is None or reference is None:
+        return None
+    return reference / actor
 
 
 # --------------------------------------------------------------------------- MJCF

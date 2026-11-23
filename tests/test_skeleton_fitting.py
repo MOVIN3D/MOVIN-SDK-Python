@@ -10,6 +10,8 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from movin_sdk_python.utils.skeleton_fitting import (
+    LEG_BONES,
+    body_scale_to_reference,
     fit_skeleton_mjcf,
     hips_height,
     stream_offsets,
@@ -18,6 +20,9 @@ from movin_sdk_python.utils.skeleton_presets import PRESETS, get_preset
 
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 HAS_MUJOCO = HAS_NUMPY and importlib.util.find_spec("mujoco") is not None
+HAS_RETARGETING = HAS_MUJOCO and all(
+    importlib.util.find_spec(name) is not None for name in ("scipy", "mink")
+)
 
 # Calibration-like per-bone length ratios.
 ACTOR_SCALE = {
@@ -258,6 +263,64 @@ class MeshFittingTests(unittest.TestCase):
         model = self.Model.from_preset("movinman")
         with self.assertRaises(ValueError):
             model.fit_to_bones(synth_bones(get_preset("movinman_v3")))
+
+
+class BodyScaleTests(unittest.TestCase):
+    def test_reference_body_has_scale_one(self):
+        for preset in PRESETS.values():
+            self.assertAlmostEqual(body_scale_to_reference(synth_bones(preset), preset), 1.0)
+
+    def test_shorter_legs_scale_up(self):
+        preset = get_preset("movinman_v3")
+        bones = synth_bones(preset, {name: 0.8 for name in LEG_BONES})
+        self.assertAlmostEqual(body_scale_to_reference(bones, preset), 1.25)
+
+    def test_incomplete_legs_give_none(self):
+        preset = get_preset("movinman_v3")
+        bones = [b for b in synth_bones(preset) if b["bone_name"] != "LeftFoot"]
+        self.assertIsNone(body_scale_to_reference(bones, preset))
+
+
+@unittest.skipUnless(HAS_RETARGETING, "retargeting dependencies are not installed")
+class RetargeterBodyScaleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import json
+        from pathlib import Path
+
+        from movin_sdk_python.retargeter.retargeter import Retargeter
+
+        cls.Retargeter = Retargeter
+        config = Path(__file__).parents[1] / "movin_sdk_python" / "retargeter" / "ik_configs" / "movinman_v3_to_g1.json"
+        cls.base = json.loads(config.read_text(encoding="utf-8"))["human_scale_table"]
+        cls.preset = get_preset("movinman_v3")
+
+    def assert_table(self, retargeter, factor):
+        for name, value in self.base.items():
+            self.assertAlmostEqual(retargeter.human_scale_table[name], value * factor, places=9, msg=name)
+
+    def test_auto_is_the_default_and_follows_the_stream(self):
+        retargeter = self.Retargeter("unitree_g1")
+        self.assertEqual(retargeter.human_height, "auto")
+        self.assert_table(retargeter, 1.0)  # reference body until a frame arrives
+        retargeter.process_mocap_frame(synth_bones(self.preset, {n: 0.8 for n in LEG_BONES}))
+        self.assertAlmostEqual(retargeter.body_scale, 1.25)
+        self.assert_table(retargeter, 1.25)
+        # Recalibrated actor: the scale follows the new proportions.
+        retargeter.process_mocap_frame(synth_bones(self.preset))
+        self.assertAlmostEqual(retargeter.body_scale, 1.0)
+        self.assert_table(retargeter, 1.0)
+
+    def test_a_number_turns_auto_off_and_keeps_the_legacy_scale(self):
+        retargeter = self.Retargeter("unitree_g1", human_height=1.75)
+        retargeter.process_mocap_frame(synth_bones(self.preset, {n: 0.8 for n in LEG_BONES}))
+        self.assertIsNone(retargeter.body_scale)
+        self.assert_table(retargeter, 1.75 / 1.8)
+
+    def test_invalid_heights_are_rejected(self):
+        for value in ("tall", 0, -1.7):
+            with self.assertRaises(ValueError):
+                self.Retargeter("unitree_g1", human_height=value)
 
 
 if __name__ == "__main__":

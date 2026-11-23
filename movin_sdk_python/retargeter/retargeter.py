@@ -10,6 +10,7 @@ from scipy.spatial.transform import Rotation as R
 
 from ..utils.quat_utils import quat_mul, rotate_vec_by_quat
 from ..utils.fk_utils import process_mocap_frame
+from ..utils.skeleton_fitting import LEG_BONES, body_scale_to_reference
 
 
 # Package paths
@@ -42,6 +43,9 @@ IK_CONFIG_BY_PRESET = {
 
 DEFAULT_SOURCE_PRESET = "movinman_v3"
 
+# human_height value that sizes the IK targets from the streamed body.
+AUTO_HUMAN_HEIGHT = "auto"
+
 
 class Retargeter:
     """
@@ -52,7 +56,7 @@ class Retargeter:
     - unitree_g1_with_hands: Unitree G1 robot with hands
     
     Example usage:
-        retargeter = Retargeter(robot_type="unitree_g1", human_height=1.75)
+        retargeter = Retargeter(robot_type="unitree_g1")  # human_height="auto"
         
         # From a live or replayed mocap frame
         mocap_data = retargeter.process_mocap_frame(bones)
@@ -62,7 +66,7 @@ class Retargeter:
     def __init__(
         self,
         robot_type: str = "unitree_g1",
-        human_height: float = 1.75,
+        human_height="auto",
         solver: str = "daqp",
         damping: float = 5e-1,
         verbose: bool = False,
@@ -74,7 +78,16 @@ class Retargeter:
 
         Args:
             robot_type: Robot type ("unitree_g1" or "unitree_g1_with_hands")
-            human_height: Human height in meters for scaling
+            human_height: How human positions are sized to the robot.
+                "auto" (default): normalize the actor to the reference body
+                the IK tables were tuned for, using the T-pose leg height of
+                the streamed bones (``body_scale``); recomputed whenever the
+                streamed proportions change.  A number turns this off and
+                applies the fixed scale of earlier releases,
+                ``scale_table * human_height / 1.8``.  Note that this legacy
+                factor grows with the value, so it does not normalize by the
+                actor's real height; pass the number you used before to keep
+                earlier results.
             solver: IK solver type ("daqp" or "quadprog")
             damping: IK damping factor
             verbose: Print debug information
@@ -86,6 +99,14 @@ class Retargeter:
         if robot_type not in ROBOT_XML_DICT:
             raise ValueError(f"Unknown robot type: {robot_type}. "
                            f"Supported: {list(ROBOT_XML_DICT.keys())}")
+
+        if isinstance(human_height, str):
+            if human_height != AUTO_HUMAN_HEIGHT:
+                raise ValueError(
+                    f"human_height must be a number or {AUTO_HUMAN_HEIGHT!r}, got {human_height!r}"
+                )
+        elif not human_height > 0:
+            raise ValueError(f"human_height must be positive, got {human_height!r}")
 
         if (robot_type, source_preset) not in IK_CONFIG_BY_PRESET:
             valid_presets = sorted(
@@ -129,9 +150,19 @@ class Retargeter:
         with open(ik_config_path) as f:
             ik_config = json.load(f)
         
-        # Compute scale ratio based on human height
-        ratio = human_height / ik_config["human_height_assumption"]
-        
+        # Scale ratio: 1.0 (the reference body) until "auto" sees a frame, or
+        # the legacy fixed ratio for a numeric human_height.
+        self.human_height = human_height
+        self._base_scale_table = dict(ik_config["human_scale_table"])
+        self._body_scale_key = None
+        self._warned_body_scale = False
+        if human_height == AUTO_HUMAN_HEIGHT:
+            ratio = 1.0
+            self.body_scale = 1.0
+        else:
+            ratio = float(human_height) / ik_config["human_height_assumption"]
+            self.body_scale = None
+
         # Adjust the human scale table
         for key in ik_config["human_scale_table"].keys():
             ik_config["human_scale_table"][key] = ik_config["human_scale_table"][key] * ratio
@@ -226,8 +257,35 @@ class Retargeter:
                 
         Returns:
             Dict mapping bone_name to [position, rotation] suitable for retarget()
+
+        With ``human_height="auto"`` this also sizes the IK targets to the
+        streamed body (see ``body_scale``).
         """
+        if self.human_height == AUTO_HUMAN_HEIGHT:
+            self._update_body_scale(bones)
         return process_mocap_frame(bones)
+
+    def _update_body_scale(self, bones):
+        """Normalize the scale table to the streamed actor's leg height."""
+        key = tuple(
+            (b["bone_name"], tuple(b["p"])) for b in bones if b["bone_name"] in LEG_BONES
+        )
+        if key == self._body_scale_key:
+            return
+        self._body_scale_key = key
+        scale = body_scale_to_reference(bones, self.source_preset)
+        if scale is None:
+            if not self._warned_body_scale:
+                print("[Retargeter] Cannot size the stream (incomplete leg chain); "
+                      "using the reference body")
+                self._warned_body_scale = True
+            scale = 1.0
+        self.body_scale = scale
+        self.human_scale_table = {
+            name: value * scale for name, value in self._base_scale_table.items()
+        }
+        if self.verbose:
+            print(f"[Retargeter] Body scale to reference: {scale:.4f}")
 
     def process(self, frame):
         """Process a receiver frame for use in a :class:`MovinSession` pipeline.

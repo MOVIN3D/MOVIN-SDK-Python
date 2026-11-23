@@ -119,7 +119,7 @@ only when receiving the legacy MOVINMan skeleton.
 ```python
 Retargeter(
     robot_type="unitree_g1",
-    human_height=1.75,
+    human_height="auto",
     solver="daqp",
     damping=0.5,
     verbose=False,
@@ -127,6 +127,26 @@ Retargeter(
     source_preset="movinman_v3",
 )
 ```
+
+### Body size (`human_height`)
+
+The IK tables were tuned for the preset's reference body. By default
+(`human_height="auto"`), the retargeter normalizes each actor to that body.
+The size ratio comes from the T-pose leg height of the streamed bones, and it
+is recomputed whenever MOVIN Studio streams new proportions.
+`retargeter.body_scale` reports the ratio. It is greater than 1 when the actor
+is smaller than the reference body. Until the first
+`process_mocap_frame()` call, and for a stream without complete leg chains,
+the retargeter uses the reference body (ratio 1.0).
+
+To turn this off, pass a number. That applies the fixed scale of earlier
+releases, `scale_table × human_height / 1.8`, and leaves `body_scale` as
+`None`. Pass the value you used before (the old default was `1.75`) to
+reproduce earlier results.
+
+This legacy factor grows with the value. It therefore does not normalize by
+the actor's real height, and entering a smaller actor's real height makes the
+targets smaller still.
 
 ### Supported robot models
 
@@ -144,6 +164,7 @@ Retargeter(
 | `process(frame)` | Processes and retargets one complete receiver frame for `MovinSession` |
 | `get_required_bones()` | Returns bones required by the active source preset |
 | `set_ground_offset(offset)` | Sets the ground-height offset |
+| `human_height` / `body_scale` | `"auto"` or the fixed value; the current size ratio in auto mode (else `None`) |
 
 `process(frame)` is an additive adapter for the core `FrameProcessor` contract.
 The existing `process_mocap_frame()` and `retarget()` workflow remains supported.
@@ -166,8 +187,7 @@ from movin_sdk_python import MocapReceiver, Retargeter
 receiver = MocapReceiver(host="0.0.0.0", port=11235)
 retargeter = Retargeter(
     robot_type="unitree_g1",
-    human_height=1.75,
-    source_preset="movinman_v3",
+    source_preset="movinman_v3",  # human_height="auto" by default
 )
 
 receiver.start()

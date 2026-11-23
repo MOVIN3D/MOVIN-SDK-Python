@@ -11,7 +11,8 @@ The data flow:
 3. Retarget to robot joint positions
 
 Usage:
-    python mocap_to_robot.py --port 11235 --robot unitree_g1 --human_height 1.75
+    python mocap_to_robot.py --port 11235 --robot unitree_g1                       # body size from the stream
+    python mocap_to_robot.py --port 11235 --robot unitree_g1 --human_height 1.75  # fixed legacy scale
     python mocap_to_robot.py --host 192.168.0.25 --port 12000 --robot unitree_g1
 """
 
@@ -26,6 +27,16 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from movin_sdk_python import Retargeter, MocapReceiver
+
+
+def human_height_arg(value):
+    """'auto' or a positive number of meters."""
+    if value == "auto":
+        return value
+    height = float(value)
+    if height <= 0:
+        raise argparse.ArgumentTypeError("human_height must be positive")
+    return height
 
 
 def main():
@@ -55,9 +66,10 @@ def main():
     
     parser.add_argument(
         "--human_height",
-        type=float,
-        default=1.75,
-        help="Human height in meters for scaling (default: 1.75)",
+        type=human_height_arg,
+        default="auto",
+        help="'auto' (default): size the robot targets from the streamed body; "
+             "a number uses the fixed legacy scale (e.g. 1.75 for earlier results)",
     )
 
     parser.add_argument(
@@ -110,6 +122,7 @@ def main():
     
     # Warning tracking
     warned_missing = 0
+    reported_scale = False
     
     print(f"[Main] Waiting for mocap data on {args.host}:{args.port}...")
     print("[Main] Press Ctrl+C to stop")
@@ -144,6 +157,9 @@ def main():
             
             # Retarget
             qpos = retargeter.retarget(mocap_data)
+            if not reported_scale and retargeter.body_scale is not None:
+                print(f"[Main] Body scale to reference: {retargeter.body_scale:.3f}")
+                reported_scale = True
             
             # Print output (for demonstration)
             if args.debug:
