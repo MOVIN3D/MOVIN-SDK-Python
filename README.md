@@ -11,6 +11,12 @@ Robot retargeting, numerical motion utilities, and MuJoCo visualization are
 separate optional extensions. They are not installed or imported by the core
 SDK unless explicitly requested.
 
+MOVIN Studio calibrates every actor, and the stream carries that actor's bone
+lengths. Robot retargeting and the character mesh follow the streamed actor's
+body by default, and the MJCF skeleton is fitted with one call. Each can be
+switched back to the fixed reference body (see
+[Matching the Actor's Body](#matching-the-actors-body)).
+
 ## What Is Core and What Is Optional?
 
 ```text
@@ -32,7 +38,8 @@ mocap frame ──────────────────────�
 |------|:---------------:|---------|
 | `MovinSession`, `MocapReceiver` | Yes | Receive mocap frames from MOVIN Studio |
 | `OscRecorder`, `OscPlayer`, `ReplayMocapReceiver` | Yes | Record and replay the original OSC stream |
-| `Retargeter` and numeric motion utilities | No — `[retargeting]` | Convert human motion to robot joint states |
+| Skeleton presets, packaged MJCF/mesh assets, `fit_skeleton_mjcf` | Yes | MOVINMan skeleton assets and fitting them to the actor's body |
+| `Retargeter`, `MOVINMeshModel`, numeric motion utilities | No — `[retargeting]` | Convert human motion to robot joint states; pose the character mesh |
 | `MocapViewer`, `MujocoViewer` | No — `[viewer]` | Visualize raw mocap or robot states in MuJoCo |
 
 ## Install the Core SDK
@@ -114,7 +121,10 @@ real IP address; `0.0.0.0` is not routable and never reaches another machine.
 The receiver answers MOVIN Studio's status probe. While it runs, Studio's
 Streaming panel shows **OSC connected** and the Motion and Viewer frame rates.
 Viewer fps is the rate at which your application calls `get_latest_frame()`.
-See [Connection status in MOVIN Studio](doc/API.md#connection-status-in-movin-studio).
+To turn the reply off, create the receiver with
+`MocapReceiver(reply_status=False)`. For a session, pass that receiver as
+`MovinSession(receiver=...)`. See
+[Connection status in MOVIN Studio](doc/API.md#connection-status-in-movin-studio).
 
 ## Replay a Recording
 
@@ -249,20 +259,57 @@ from movin_sdk_python import MujocoViewer, Retargeter
 
 `Retargeter` defaults to the MOVINManV3 skeleton. Legacy streams remain
 available with `Retargeter(source_preset="movinman")` or the live example
-option `--source-preset movinman`.
+option `--source-preset movinman`. It also sizes the robot targets from the
+streamed body by default (`human_height="auto"`); see
+[Matching the Actor's Body](#matching-the-actors-body).
 
 Without the required extra, using an optional API raises
 `MissingOptionalDependencyError` with the appropriate installation command. A
 missing optional dependency never prevents `import movin_sdk_python` or any core
 receive/record/replay workflow.
 
-The MOVINMan MJCF skeletons and LBS meshes for the skeleton presets ship with
-the package. They can be fitted to the actor's calibrated proportions from the
-stream, so the overlay's joints match the stream exactly. See
-[Fitting Assets to the Actor's Body Proportions](doc/OPTIONAL_EXTENSIONS.md#fitting-assets-to-the-actors-body-proportions).
-
 See [Optional Extensions](doc/OPTIONAL_EXTENSIONS.md) for retargeting, viewer,
 skeleton preset, and session pipeline documentation.
+
+## Matching the Actor's Body
+
+The MOVINMan MJCF skeletons and LBS meshes of the skeleton presets ship inside
+the package (`movin_sdk_python/assets`; `preset.mjcf_path`,
+`preset.mesh_npz_path`) with the reference body's proportions.
+
+| Component | Default | Turn off |
+|-----------|---------|----------|
+| `MocapViewer` stick figure | Always the streamed body | — |
+| `Retargeter` | `human_height="auto"` sizes the targets from the streamed body (`body_scale`) | `human_height=1.75` (any number: fixed legacy scale), or `--human_height 1.75` in the examples |
+| `MOVINMeshModel.pose_from_bones()` | `fit=True` fits the mesh to the streamed body | `fit=False` or `reset_fit()` |
+| MJCF skeleton | Opt-in, because the scene is built by your application: call `fit_skeleton_mjcf()` | Load `preset.mjcf_path` unchanged |
+
+```python
+from movin_sdk_python import Retargeter
+from movin_sdk_python.utils.movinman_mesh_utils import MOVINMeshModel
+from movin_sdk_python.utils.skeleton_fitting import fit_skeleton_mjcf
+
+bones = frame["bones"]  # any frame from MocapReceiver / ReplayMocapReceiver
+
+retargeter = Retargeter()  # human_height="auto"
+qpos = retargeter.retarget(retargeter.process_mocap_frame(bones))
+print(retargeter.body_scale)  # > 1 when the actor is smaller than the reference body
+
+mesh = MOVINMeshModel.from_preset("movinman_v3")
+vertices = mesh.pose_from_bones(bones)  # fitted; fit=False for the reference body
+
+with open("actor.xml", "w") as f:  # MJCF for MuJoCo / Isaac Lab
+    f.write(fit_skeleton_mjcf(bones, "movinman_v3"))
+```
+
+The fitted mesh and MJCF reproduce the stream's joint positions exactly and
+keep the feet on the ground.
+
+Numeric `human_height` values keep the scale formula of earlier releases
+(`scale_table × human_height / 1.8`), which grows with the value. It is
+therefore not the actor's real height. See
+[Body size](doc/OPTIONAL_EXTENSIONS.md#body-size-human_height) and
+[Fitting Assets](doc/OPTIONAL_EXTENSIONS.md#fitting-assets-to-the-actors-body-proportions).
 
 ## Examples
 
@@ -277,16 +324,23 @@ The following examples require optional extras:
 ```bash
 # Requires [viewer], but not Retargeter
 python3 examples/view_mocap.py --port 11235
+python3 examples/view_mocap.py --port 11235 --record session.pkl
 
 # Bind to one local interface and a custom port
 python3 examples/view_mocap.py --host 192.168.0.25 --port 12000
 
-# Requires [retargeting]
-python3 examples/mocap_to_robot.py --port 11235 --robot unitree_g1
+# Requires [retargeting]; prints the body scale once, then FPS
+python3 examples/mocap_to_robot.py --port 11235 --robot unitree_g1 --print_fps
+python3 examples/mocap_to_robot.py --port 11235 --human_height 1.75   # fixed legacy scale
 
 # Requires [all]
-python3 examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1
+python3 examples/mocap_to_robot_mujoco.py --port 11235 --robot unitree_g1_with_hands
 ```
+
+Common options of the robot examples are `--robot unitree_g1|unitree_g1_with_hands`,
+`--human_height auto|<meters>`, `--source-preset movinman_v3|movinman`,
+`--print_fps`, and `--debug`. `mocap_to_robot_mujoco.py` also has
+`--motion_fps` and `--no_rate_limit`.
 
 On macOS, MuJoCo GUI examples must be run with `mjpython`.
 
@@ -309,11 +363,14 @@ core modules do not import Retargeter, Viewer, NumPy, SciPy, MuJoCo, or Mink.
 
 ## Development
 
-Run the dependency-free test suite with:
+Run the test suite with:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+Without the optional extras installed, the tests that need NumPy, MuJoCo, or
+Mink are skipped. The rest run with no third-party dependencies.
 
 ## Acknowledgments
 

@@ -3,7 +3,7 @@ MOVIN mesh model and Linear Blend Skinning (LBS) utilities.
 
 Loads a pre-extracted MOVIN character mesh NPZ (``movinman_mesh.npz`` for the
 legacy MOVINMan rig, ``movinman_v3_mesh.npz`` for MOVINManV3; both ship in
-``movin_sdk_python/assets``, see its README for provenance) and implements
+``movin_sdk_python/assets``, see ``SkeletonPreset.mesh_npz_path``) and implements
 forward kinematics + LBS to produce posed vertices for the Isaac Lab mesh
 overlay.  Pure NumPy — no PyTorch dependency.
 

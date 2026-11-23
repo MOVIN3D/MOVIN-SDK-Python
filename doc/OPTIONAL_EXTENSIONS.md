@@ -371,6 +371,15 @@ legacy preset. Bones absent from the stream keep their reference offsets.
 Geom sizes, leaf spheres (head, fingertips), and foot boxes are not
 streamed, so they keep the reference values.
 
+### Defaults: what follows the actor's body
+
+| Component | Default | Turn off |
+|-----------|---------|----------|
+| `MocapViewer` stick figure | Always the streamed body (drawn from the streamed offsets) | — |
+| `Retargeter` | `human_height="auto"`: targets sized to the streamed body | `human_height=<number>` (e.g. `1.75`) or `--human_height 1.75` |
+| `MOVINMeshModel.pose_from_bones()` | `fit=True`: mesh fitted to the streamed body | `fit=False`, `reset_fit()`, or the low-level `pose_vertices()` |
+| MJCF skeleton | Opt-in: the SDK does not build a scene; call `fit_skeleton_mjcf()` where the scene is built | Load `preset.mjcf_path` unchanged |
+
 ## Isaac Lab Helpers
 
 Isaac Lab conversion and MOVINMan mesh helpers are optional application
