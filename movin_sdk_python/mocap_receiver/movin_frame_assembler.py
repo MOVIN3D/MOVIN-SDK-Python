@@ -36,6 +36,12 @@ class MovinFrameAssembler:
         self.ready_frames.clear()
         return frame
 
+    def pop_all_frames(self):
+        """Return every queued complete frame, oldest first, and clear the queue."""
+        frames = list(self.ready_frames)
+        self.ready_frames.clear()
+        return frames
+
     def ingest(self, address, args, now=None):
         """
         Ingest a parsed OSC message. Only processes /MOVIN/Frame addresses.

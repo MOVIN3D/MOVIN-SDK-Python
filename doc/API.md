@@ -117,6 +117,7 @@ computer's reachable IP and the same UDP port.
 | `start()` | Resets buffers and starts the receiver thread |
 | `stop()` | Stops the thread, closes the socket, and resets buffers |
 | `get_latest_frame()` | Returns the newest complete frame or `None`; older queued frames are discarded |
+| `get_new_frames()` | Returns every complete frame since the last call, oldest first (up to 4 are queued between calls) |
 | `get_receive_rate()` | Returns the measured OSC packet rate in Hz |
 | `reset()` | Clears partial frames, ready frames, and rate state |
 | `recorder` | Recorder receiving every successfully parsed OSC message |
@@ -135,7 +136,7 @@ receiver as **OSC connected**, with these values:
 | Studio field | Reported by the SDK |
 |--------------|---------------------|
 | Motion fps | Complete frames per second received for Studio's character from that Studio instance |
-| Viewer fps | Frames per second the application takes with `get_latest_frame()` (or `MovinSession.get_latest_frame()`) |
+| Viewer fps | Frames per second the application takes with `get_latest_frame()` or `get_new_frames()` (or `MovinSession.get_latest_frame()`) |
 | Pointcloud fps | Not supported; shown as `-` |
 
 Viewer fps therefore shows how fast the application consumes the stream: poll
@@ -241,7 +242,8 @@ ReplayMocapReceiver(recording_path, realtime=True, loop=True)
 ```
 
 The replay receiver is a drop-in polling replacement for `MocapReceiver` and
-provides `start()`, `stop()`, `get_latest_frame()`, and `get_receive_rate()`.
+provides `start()`, `stop()`, `get_latest_frame()`, `get_new_frames()`, and
+`get_receive_rate()`.
 
 - `realtime=True` reproduces recorded message intervals.
 - `loop=True` restarts playback after the final message.
@@ -276,6 +278,7 @@ MovinFrameAssembler(max_ready_frames=4, partial_ttl_sec=0.5)
 |--------|----------|
 | `ingest(address, args, now=None)` | Adds one parsed `/MOVIN/Frame` chunk; returns the frame it completed, else `None` |
 | `pop_latest_frame()` | Returns the newest complete frame and discards older ready frames |
+| `pop_all_frames()` | Returns every ready frame, oldest first, and clears the queue |
 | `prune_stale(now=None)` | Removes incomplete frames older than `partial_ttl_sec` |
 
 ## Extension Contracts

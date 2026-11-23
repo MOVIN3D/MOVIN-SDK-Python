@@ -54,6 +54,11 @@ class ReplayMocapReceiver:
         with self.lock:
             return self.assembler.pop_latest_frame()
 
+    def get_new_frames(self):
+        """Same API as MocapReceiver - every frame since the last call, oldest first."""
+        with self.lock:
+            return self.assembler.pop_all_frames()
+
     def get_receive_rate(self):
         """Get the current message replay rate in Hz."""
         return self.recv_rate_hz

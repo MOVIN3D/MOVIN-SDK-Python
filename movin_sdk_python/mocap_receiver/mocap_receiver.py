@@ -186,6 +186,31 @@ class MocapReceiver:
                 self.last_ts = frame["timestamp"]
             return frame
 
+    def get_new_frames(self):
+        """
+        Get every complete frame assembled since the last call, oldest first.
+
+        Use this instead of ``get_latest_frame()`` when no frame may be skipped
+        (publishing every frame, for example).  Up to ``max_ready_frames`` (4)
+        frames are queued between calls, so poll at least a quarter as often
+        as frames arrive.  Every returned frame counts toward the viewer rate
+        reported to MOVIN Studio.
+
+        Returns:
+            List of frame dicts (empty if none is ready).
+        """
+        with self.lock:
+            frames = self.assembler.pop_all_frames()
+            if frames:
+                now = time.monotonic()
+                for _ in frames:
+                    self.status.on_consumed(now)
+                last = frames[-1]
+                self.last_applied = last["frame_idx"]
+                self.last_actor = last["actor"]
+                self.last_ts = last["timestamp"]
+            return frames
+
     def get_receive_rate(self):
         """
         Get the current packet receive rate.
