@@ -8,6 +8,86 @@ import os
 import xml.etree.ElementTree as ET
 
 
+# MuJoCo's built-in geom rgba; a geom keeping it is colored by its material.
+_DEFAULT_GEOM_RGBA = (0.5, 0.5, 0.5, 1.0)
+
+
+def _parse_rgba(text):
+    values = tuple(float(v) for v in text.split())
+    return values if len(values) == 4 else None
+
+
+def mjcf_mesh_colors(mjcf_path):
+    """Resolve the color each mesh is drawn with, following MJCF rules.
+
+    A geom's attributes come from its default class (``class``, else the
+    nearest ancestor body's ``childclass``, else the root default), with
+    nested default classes inheriting from their parents, and its own
+    attributes on top.  Its color is its ``rgba`` when that differs from
+    MuJoCo's default, otherwise its material's ``rgba``.  When several geoms
+    draw the same mesh, a visual-only geom (``contype`` and ``conaffinity``
+    0) wins over collision geoms; geoms without any color are ignored.
+
+    Args:
+        mjcf_path: Path to an MJCF file.
+
+    Returns:
+        ``{mesh_name: (r, g, b, a)}``.
+    """
+    root = ET.parse(mjcf_path).getroot()
+
+    class_geom = {"main": {}}
+
+    def walk_default(element, inherited):
+        attrs = dict(inherited)
+        geom = element.find("geom")
+        if geom is not None:
+            attrs.update(geom.attrib)
+        class_geom[element.get("class", "main")] = attrs
+        for child in element.findall("default"):
+            walk_default(child, attrs)
+
+    for top in root.findall("default"):
+        walk_default(top, {})
+
+    materials = {}
+    for material in root.iter("material"):
+        rgba = _parse_rgba(material.get("rgba", "1 1 1 1"))
+        if material.get("name") and rgba is not None:
+            materials[material.get("name")] = rgba
+
+    chosen = {}  # mesh -> (priority, rgba)
+
+    def walk_body(element, childclass):
+        for geom in element.findall("geom"):
+            attrs = dict(class_geom.get(geom.get("class", childclass), class_geom["main"]))
+            attrs.update(geom.attrib)
+            mesh = attrs.get("mesh")
+            if not mesh:
+                continue
+            rgba = _parse_rgba(attrs["rgba"]) if "rgba" in attrs else None
+            if rgba is not None and rgba != _DEFAULT_GEOM_RGBA:
+                color = rgba
+            elif attrs.get("material") in materials:
+                color = materials[attrs["material"]]
+            elif rgba is not None:
+                color = rgba
+            else:
+                continue
+            visual = attrs.get("contype") == "0" and attrs.get("conaffinity") == "0"
+            priority = 2 if visual else 1
+            if mesh not in chosen or priority > chosen[mesh][0]:
+                chosen[mesh] = (priority, color)
+        for child in element:
+            if child.tag in ("body", "frame"):
+                walk_body(child, child.get("childclass", childclass))
+
+    worldbody = root.find("worldbody")
+    if worldbody is not None:
+        walk_body(worldbody, "main")
+    return {mesh: color for mesh, (_, color) in chosen.items()}
+
+
 def fix_mjcf_usd_materials(mjcf_path, usd_path):
     """Post-process a converted robot USD to fix material bindings.
 
@@ -16,6 +96,8 @@ def fix_mjcf_usd_materials(mjcf_path, usd_path):
     ``DefaultMaterial``).  This function parses the source MJCF to extract
     per-geom RGBA colors, creates proper ``UsdPreviewSurface`` materials in
     the base USD sublayer, and rebinds each visual mesh prim accordingly.
+    Colors are resolved like MuJoCo does (see ``mjcf_mesh_colors``), so
+    MJCFs that color geoms through materials and default classes work too.
 
     Safe to call repeatedly — existing ``RobotMat_*`` materials are replaced.
 
@@ -25,15 +107,8 @@ def fix_mjcf_usd_materials(mjcf_path, usd_path):
     """
     from pxr import Usd, UsdShade, UsdGeom, Sdf, Gf
 
-    # ---- 1. Parse MJCF for mesh_name → RGBA mapping ----
-    tree = ET.parse(mjcf_path)
-    mesh_to_rgba = {}
-    for geom in tree.iter("geom"):
-        mesh_name = geom.get("mesh")
-        rgba_str = geom.get("rgba")
-        if mesh_name and rgba_str:
-            rgba = tuple(float(x) for x in rgba_str.split())
-            mesh_to_rgba[mesh_name] = rgba
+    # ---- 1. Resolve mesh_name → RGBA from the MJCF ----
+    mesh_to_rgba = mjcf_mesh_colors(mjcf_path)
 
     if not mesh_to_rgba:
         return
