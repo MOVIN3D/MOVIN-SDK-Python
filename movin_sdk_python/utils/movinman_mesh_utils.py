@@ -2,8 +2,8 @@
 MOVIN mesh model and Linear Blend Skinning (LBS) utilities.
 
 Loads a pre-extracted MOVIN character mesh NPZ (``movinman_mesh.npz`` for the
-legacy MOVINMan rig, ``movinman_v3_mesh.npz`` for MOVINManV3, both produced by
-MOVIN-Isaac-Plugin's ``scripts/extract_movinman_mesh.py``) and implements
+legacy MOVINMan rig, ``movinman_v3_mesh.npz`` for MOVINManV3; both ship in
+``movin_sdk_python/assets``, see its README for provenance) and implements
 forward kinematics + LBS to produce posed vertices for the Isaac Lab mesh
 overlay.  Pure NumPy — no PyTorch dependency.
 
@@ -33,10 +33,10 @@ from .quat_utils import (
     quat_normalize,
     unity_to_opengl_quat,
 )
+from .skeleton_presets import MOVINMAN_PRESET, SkeletonPreset, get_preset
 
-_RESOLVED_FILE = Path(__file__).resolve()
-_PROJECT_ROOT = _RESOLVED_FILE.parents[2]
-_DEFAULT_NPZ_PATH = _PROJECT_ROOT / "data" / "movinman_mesh.npz"
+# Packaged legacy mesh, matching the legacy default ``expected_bone_names``.
+_DEFAULT_NPZ_PATH = Path(MOVINMAN_PRESET.mesh_npz_path)
 
 _ROT_Z_90 = np.array(
     [
@@ -113,8 +113,8 @@ class MOVINMeshModel:
             expected_bone_names = SKELETON_BODY_NAMES
         if not os.path.exists(npz_path):
             raise FileNotFoundError(
-                f"Mesh NPZ not found: {npz_path}. Extract it with "
-                "MOVIN-Isaac-Plugin's scripts/extract_movinman_mesh.py (runs in Blender)."
+                f"Mesh NPZ not found: {npz_path}. The packaged meshes live in "
+                "movin_sdk_python/assets (see SkeletonPreset.mesh_npz_path)."
             )
 
         data = np.load(npz_path, allow_pickle=False)
@@ -138,6 +138,19 @@ class MOVINMeshModel:
         V = self._vertices.shape[0]
         self._bind_verts_homo = np.ones((V, 4), dtype=np.float64)
         self._bind_verts_homo[:, :3] = self._vertices
+
+    @classmethod
+    def from_preset(cls, preset="movinman_v3"):
+        """Load the packaged mesh of a skeleton preset (name or SkeletonPreset)."""
+        if not isinstance(preset, SkeletonPreset):
+            preset = get_preset(preset)
+        if preset.mesh_npz_path is None:
+            raise ValueError(f"Skeleton preset '{preset.name}' has no mesh asset")
+        return cls(preset.mesh_npz_path, expected_bone_names=preset.body_names)
+
+    @property
+    def bone_names(self):
+        return list(self._bone_names)
 
     @property
     def faces(self) -> np.ndarray:

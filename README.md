@@ -295,6 +295,7 @@ movin_sdk_python/
 ├── pipeline.py          # Core: optional-extension interfaces
 ├── retargeter/          # Optional: robot retargeting implementation/assets
 ├── viewer/              # Optional: raw mocap and robot-state MuJoCo viewers
+├── assets/              # MOVINMan MJCF skeletons and LBS meshes for the presets
 └── utils/               # Optional numeric utilities plus dependency-free presets
 ```
 

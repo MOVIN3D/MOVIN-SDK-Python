@@ -36,4 +36,4 @@ where = ["."]
 include = ["movin_sdk_python*"]
 
 [tool.setuptools.package-data]
-"movin_sdk_python" = ["**/*.xml", "**/*.json", "**/*.STL"]
+"movin_sdk_python" = ["**/*.xml", "**/*.json", "**/*.STL", "**/*.npz"]

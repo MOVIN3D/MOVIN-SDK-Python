@@ -1,2 +1,3 @@
 recursive-include retargeter/assets *
 recursive-include retargeter/ik_configs *
+recursive-include movin_sdk_python/assets *

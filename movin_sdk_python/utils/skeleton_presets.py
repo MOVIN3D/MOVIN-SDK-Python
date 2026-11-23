@@ -3,7 +3,9 @@ Skeleton preset definitions - single source of truth for MOVIN body layouts.
 
 A preset bundles everything name-keyed code needs to drive an articulation for
 a given MOVINMan skeleton: the DFS body order (root "Hips" first), the default
-hips height, and the associated MJCF / mesh asset filenames.
+hips height, and the associated MJCF / mesh assets.  The assets ship inside the
+package (``movin_sdk_python/assets``); ``mjcf_path`` / ``mesh_npz_path`` resolve
+them.  They carry the reference T-pose proportions.
 
 Two presets are supported:
     - movinman     : 51-body legacy skeleton (MOVINMan.fbx)
@@ -24,6 +26,16 @@ re-exports the legacy constants FROM here.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
+
+
+# Directory of the packaged MJCF / mesh assets.
+ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
+
+
+def asset_path(filename):
+    """Absolute path of a packaged asset file (no existence check)."""
+    return str(ASSET_DIR / filename)
 
 
 # DFS body order of the legacy MOVINMan skeleton (matches the MJCF hierarchy).
@@ -47,7 +59,7 @@ MOVINMAN_BODY_NAMES = (
     "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase",
 )
 
-# DFS body order of the MOVINManV3 skeleton (matches data/movinman_v3_skeleton.xml,
+# DFS body order of the MOVINManV3 skeleton (matches assets/movinman_v3_skeleton.xml,
 # which is generated from MOVINman_V3_local_rotation_identity_tpose.bvh, as well
 # as the bone order of MOVIN Studio's V3 live stream and BVH exports).  Adds
 # Spine2/Spine3/Neck1 vs legacy; Neck and both shoulders are parented under
@@ -86,10 +98,9 @@ class SkeletonPreset:
         name: Preset identifier ("movinman" or "movinman_v3").
         body_names: DFS body order incl. the root "Hips".
         default_hips_height: Rest-pose hips height in meters (Z-up).
-        mjcf_filename: MJCF asset filename (resolved by the caller against its
-            own data directory).
-        mesh_npz_filename: LBS mesh asset filename, or None if the preset has
-            no mesh overlay asset.
+        mjcf_filename: MJCF asset filename inside ``ASSET_DIR``.
+        mesh_npz_filename: LBS mesh asset filename inside ``ASSET_DIR``, or
+            None if the preset has no mesh overlay asset.
     """
 
     name: str
@@ -102,6 +113,18 @@ class SkeletonPreset:
     def joint_bones(self):
         """Non-root bones in skeleton order (each drives 3 DOFs: _x, _y, _z)."""
         return self.body_names[1:]
+
+    @property
+    def mjcf_path(self):
+        """Absolute path of the packaged MJCF skeleton."""
+        return asset_path(self.mjcf_filename)
+
+    @property
+    def mesh_npz_path(self):
+        """Absolute path of the packaged LBS mesh, or None without a mesh asset."""
+        if self.mesh_npz_filename is None:
+            return None
+        return asset_path(self.mesh_npz_filename)
 
 
 MOVINMAN_PRESET = SkeletonPreset(

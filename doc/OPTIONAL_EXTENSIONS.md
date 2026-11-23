@@ -295,8 +295,13 @@ detected = detect_preset_from_bone_names(bone_names)
 
 | Preset | Body count | Notes |
 |--------|-----------:|-------|
-| `movinman` | 51 | Legacy MOVINMan layout; includes a mesh-overlay asset |
-| `movinman_v3` | 54 | Adds `Spine2`, `Spine3`, `Neck1`, and full finger chains; mesh-overlay asset `movinman_v3_mesh.npz` |
+| `movinman` | 51 | Legacy MOVINMan layout; MJCF `movinman_skeleton.xml`, mesh `movinman_mesh.npz` |
+| `movinman_v3` | 54 | Adds `Spine2`, `Spine3`, `Neck1`, and full finger chains; MJCF `movinman_v3_skeleton.xml`, mesh `movinman_v3_mesh.npz` |
+
+The MJCF and mesh assets ship inside the package (`movin_sdk_python/assets`,
+installed with the default package), so no other checkout is needed.
+`preset.mjcf_path` and `preset.mesh_npz_path` return their absolute paths.
+Loading the MJCF requires MuJoCo or Isaac Lab, and the mesh requires NumPy.
 
 `body_names` lists bodies in the DFS order of the preset's MJCF asset.  For
 `movinman_v3` that is the order of MOVIN Studio's V3 live stream and BVH
@@ -320,7 +325,7 @@ Key configurable functions include:
 - `extract_movin_local_quats_yup(..., skeleton_body_names=...)`
 - `process_movin_bones_for_isaaclab(..., skeleton_bone_names=...)`
 - `build_dof_reorder_map(..., skeleton_bone_names=...)`
-- `MOVINMeshModel(..., expected_bone_names=...)`
+- `MOVINMeshModel(..., expected_bone_names=...)` / `MOVINMeshModel.from_preset(...)`
 - `hips_global_transform_rh(bones)` / `find_stream_root_bone(bones)`
 
 The Isaac Lab and mesh helpers locate the actor's global pose by walking the

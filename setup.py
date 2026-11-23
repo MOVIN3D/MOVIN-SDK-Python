@@ -7,7 +7,7 @@ setup(
     version='0.1.0',
     packages=find_packages(include=['movin_sdk_python', 'movin_sdk_python.*']),
     package_data={
-        'movin_sdk_python': ['**/*.xml', '**/*.json', '**/*.STL'],
+        'movin_sdk_python': ['**/*.xml', '**/*.json', '**/*.STL', '**/*.npz'],
     },
 )
 
