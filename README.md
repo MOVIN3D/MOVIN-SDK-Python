@@ -44,6 +44,15 @@ mocap frame ──────────────────────�
 
 ## Install the Core SDK
 
+Install into a virtual environment, so the SDK and its optional dependencies
+stay separate from the system Python. The core SDK needs Python 3.8 or newer,
+and any environment manager works:
+
+```bash
+python3 -m venv .venv          # or: uv venv / conda create -n movin python=3.11
+source .venv/bin/activate
+```
+
 From GitHub:
 
 ```bash
@@ -58,6 +67,12 @@ pip install -e /path/to/MOVIN-SDK-Python
 
 This installs only the receiver, recorder, and replay APIs. NumPy, SciPy,
 MuJoCo, Mink, and viewer dependencies are not part of the default installation.
+
+Using [MOVIN Isaac Plugin](https://github.com/MOVIN3D/MOVIN-Isaac-Plugin)? It
+ships this SDK as a submodule and installs it into its Isaac Lab environment.
+Follow the plugin's README instead of installing a separate copy of the SDK
+into that environment: two installs of `movin_sdk_python` in one environment
+shadow each other.
 
 ## Quick Start: Receive and Record
 
