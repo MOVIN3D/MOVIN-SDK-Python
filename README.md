@@ -111,6 +111,11 @@ receiver, because the kernel delivers packets sent to `0.0.0.0` to the local
 host). When Studio runs on another computer, enter the receiver computer's
 real IP address; `0.0.0.0` is not routable and never reaches another machine.
 
+The receiver answers MOVIN Studio's status probe. While it runs, Studio's
+Streaming panel shows **OSC connected** and the Motion and Viewer frame rates.
+Viewer fps is the rate at which your application calls `get_latest_frame()`.
+See [Connection status in MOVIN Studio](doc/API.md#connection-status-in-movin-studio).
+
 ## Replay a Recording
 
 `ReplayMocapReceiver` follows the same polling API as `MocapReceiver`:

@@ -44,11 +44,15 @@ class MovinFrameAssembler:
             address: OSC address string
             args: Parsed OSC argument list
             now: Current wall-clock time (default: time.time())
+
+        Returns:
+            The frame this message completed, or None.  The frame is also
+            queued for ``pop_latest_frame()``.
         """
         if address != "/MOVIN/Frame":
-            return
+            return None
         now = time.time() if now is None else now
-        self._ingest_frame(args, now)
+        return self._ingest_frame(args, now)
 
     def _ingest_frame(self, args, now):
         try:
@@ -60,7 +64,7 @@ class MovinFrameAssembler:
             total_bones = int(args[5])
             chunk_bones = int(args[6])
         except Exception:
-            return
+            return None
 
         # NOVA uses /MOVIN/Frame too, but with an extra start_bone header field and
         # 3x3 rotation matrices instead of quaternions. Detect and skip.
@@ -77,7 +81,7 @@ class MovinFrameAssembler:
                     "Use NovaMocapReceiver for this sender."
                 )
                 self.warned_nova_stream = True
-            return
+            return None
 
         # Parse bone data from this chunk
         k = 7
@@ -103,7 +107,7 @@ class MovinFrameAssembler:
                     "s": (sx, sy, sz),
                 })
         except Exception:
-            return
+            return None
 
         # Assemble frame from chunks
         key = (actor_name, frame_idx)
@@ -123,6 +127,7 @@ class MovinFrameAssembler:
         buf["chunks"][chunk_idx] = bones_in_chunk
 
         # Check if frame is complete
+        frame = None
         if len(buf["chunks"]) >= buf["num_chunks"]:
             ordered = []
             complete = True
@@ -141,3 +146,4 @@ class MovinFrameAssembler:
                 }
                 self.ready_frames.append(frame)
             del self.frame_buffers[key]
+        return frame

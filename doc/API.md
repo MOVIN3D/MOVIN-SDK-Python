@@ -100,7 +100,7 @@ not stop the receiver or raw recorder.
 ## `MocapReceiver`
 
 ```python
-MocapReceiver(port=11235, recorder=None, *, host="0.0.0.0")
+MocapReceiver(port=11235, recorder=None, *, host="0.0.0.0", reply_status=True)
 ```
 
 Receives OSC messages on a background UDP thread and assembles chunked
@@ -120,9 +120,29 @@ computer's reachable IP and the same UDP port.
 | `get_receive_rate()` | Returns the measured OSC packet rate in Hz |
 | `reset()` | Clears partial frames, ready frames, and rate state |
 | `recorder` | Recorder receiving every successfully parsed OSC message |
+| `reply_status` | Whether MOVIN Studio's status probe is answered (see below) |
 
 The recorder is called before messages enter `MovinFrameAssembler`. Changing
 `receiver.recorder` is serialized with active `record()` calls.
+
+### Connection status in MOVIN Studio
+
+While streaming over OSC, MOVIN Studio sends `/MOVIN/OSC/Status/Request`
+about once a second. The receiver answers on the reply port named in the
+request, at the sender's address. Studio's Streaming panel then shows the
+receiver as **OSC connected**, with these values:
+
+| Studio field | Reported by the SDK |
+|--------------|---------------------|
+| Motion fps | Complete frames per second received for Studio's character from that Studio instance |
+| Viewer fps | Frames per second the application takes with `get_latest_frame()` (or `MovinSession.get_latest_frame()`) |
+| Pointcloud fps | Not supported; shown as `-` |
+
+Viewer fps therefore shows how fast the application consumes the stream: poll
+at least at the stream rate to keep it at 60 fps. Without a reply Studio shows
+**OSC not connected** even while frames arrive. Pass `reply_status=False` to
+stay silent. The probes are ordinary OSC messages, so recordings contain them;
+replay ignores them.
 
 ### Frame schema
 
@@ -254,7 +274,7 @@ MovinFrameAssembler(max_ready_frames=4, partial_ttl_sec=0.5)
 
 | Member | Behavior |
 |--------|----------|
-| `ingest(address, args, now=None)` | Adds one parsed `/MOVIN/Frame` chunk |
+| `ingest(address, args, now=None)` | Adds one parsed `/MOVIN/Frame` chunk; returns the frame it completed, else `None` |
 | `pop_latest_frame()` | Returns the newest complete frame and discards older ready frames |
 | `prune_stale(now=None)` | Removes incomplete frames older than `partial_ttl_sec` |
 

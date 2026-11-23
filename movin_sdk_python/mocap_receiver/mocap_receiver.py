@@ -12,6 +12,7 @@ import time
 
 from .osc_reader import OscReader
 from .movin_frame_assembler import MovinFrameAssembler
+from .stream_status import OSC_STATUS_REQUEST, StreamStatus, parse_status_request
 
 
 class MocapReceiver:
@@ -26,6 +27,8 @@ class MocapReceiver:
     2. Each frame may be split across multiple chunks
     3. Chunks are assembled into complete frames
     4. Complete frames are stored in a queue for consumption
+    5. MOVIN Studio's ``/MOVIN/OSC/Status/Request`` probes are answered so
+       Studio shows the receiver as connected (see ``stream_status``)
 
     Example usage:
         receiver = MocapReceiver(host="0.0.0.0", port=11235)
@@ -66,6 +69,7 @@ class MocapReceiver:
         recorder=None,
         *,
         host: str = "0.0.0.0",
+        reply_status: bool = True,
     ):
         """
         Initialize the MocapReceiver.
@@ -75,9 +79,14 @@ class MocapReceiver:
             recorder: Optional OscRecorder instance to record incoming messages
             host: Local IPv4 address or hostname to bind (default: 0.0.0.0,
                 meaning all local IPv4 interfaces)
+            reply_status: Answer MOVIN Studio's OSC status probe so Studio
+                reports this receiver as connected (default: True)
         """
         self.host = host
         self.port = port
+        self.reply_status = reply_status
+        self.status = StreamStatus()
+        self._status_error = None
         self._recorder_lock = threading.RLock()
         self._recorder = recorder
         self.thread = None
@@ -114,6 +123,8 @@ class MocapReceiver:
             self.last_ts = ""
             self.recv_count = 0
             self.recv_rate_hz = 0.0
+        self.status.reset()
+        self._status_error = None
 
     def start(self):
         """Start the UDP server thread."""
@@ -169,6 +180,7 @@ class MocapReceiver:
         with self.lock:
             frame = self.assembler.pop_latest_frame()
             if frame is not None:
+                self.status.on_consumed(time.monotonic())
                 self.last_applied = frame["frame_idx"]
                 self.last_actor = frame["actor"]
                 self.last_ts = frame["timestamp"]
@@ -183,12 +195,27 @@ class MocapReceiver:
         """
         return self.recv_rate_hz
 
+    def _reply_status(self, sock, args, addr):
+        """Answer one MOVIN Studio status probe on the sender's reply port."""
+        request = parse_status_request(args)
+        if request is None:
+            return
+        token, reply_port, character = request
+        packet = self.status.reply_packet(token, character, addr, time.monotonic())
+        try:
+            sock.sendto(packet, (addr[0], reply_port))
+            self._status_error = None
+        except OSError as e:
+            if self.running and str(e) != self._status_error:
+                print(f"[MocapReceiver] Status reply to {addr[0]}:{reply_port} failed: {e}")
+            self._status_error = str(e)
+
     def _udp_server_loop(self, sock):
         """Background thread that receives OSC packets and assembles frames."""
         try:
             while self.running:
                 try:
-                    data, _addr = sock.recvfrom(65535)
+                    data, addr = sock.recvfrom(65535)
                 except socket.timeout:
                     now = time.time()
                     with self.lock:
@@ -208,9 +235,14 @@ class MocapReceiver:
                     if self._recorder:
                         self._recorder.record(address, args)
 
+                if address == OSC_STATUS_REQUEST and self.reply_status:
+                    self._reply_status(sock, args, addr)
+
                 now = time.time()
                 with self.lock:
-                    self.assembler.ingest(address, args, now=now)
+                    frame = self.assembler.ingest(address, args, now=now)
+                    if frame is not None:
+                        self.status.on_frame(frame["actor"], addr, time.monotonic())
 
                     # Update receive rate
                     self.recv_count += 1
